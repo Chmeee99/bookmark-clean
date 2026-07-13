@@ -1,0 +1,239 @@
+id,checkpoint,scope,command,result,run_at,evidence_path,notes
+VER-001,slice-1,test,npm test,pass,2026-07-13,tests/smoke.test.ts,One test passed independently
+VER-002,slice-1,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed independently
+VER-003,slice-1,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-004,checkpoint-1,ledger-validation,node field-count validator,pass,2026-07-13,docs/ops/,All ledger field counts were stable
+VER-005,slice-2,focused-test,node --test tests/spikes/sqlite-capabilities.test.ts,pass,2026-07-13,tests/spikes/sqlite-capabilities.test.ts,Five capability and cleanup tests passed independently
+VER-006,slice-2,full-test,npm test,pass,2026-07-13,package.json,Six tests passed independently
+VER-007,slice-2,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed independently
+VER-008,slice-2,runtime-probe,node sqlite_version query,pass,2026-07-13,docs/decisions/0001-sqlite-runtime.md,Node SQLite reported version 3.53.3
+VER-009,slice-2,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-010,checkpoint-2,ledger-validation,node field-count validator,pass,2026-07-13,docs/ops/,All ledger field counts were stable
+VER-011,slice-3,focused-test,node --test tests/spikes/lm-studio-probe.test.ts,pass,2026-07-13,tests/spikes/lm-studio-probe.test.ts,Eighteen protocol and failure-path tests passed independently
+VER-012,slice-3,full-test,npm test,pass,2026-07-13,package.json,Twenty-four tests passed independently
+VER-013,slice-3,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed independently
+VER-014,slice-3,live-provider,node scripts/spikes/lm-studio-probe.ts,fail,2026-07-13,docs/decisions/0002-lm-studio-protocol.md,Model list passed; Qwen3.5 9B returned invalid_json and process exited 1
+VER-015,slice-3,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-016,batch-1,completed-slice-audit,"Slices 1-3 audit against plan architecture tests and ledgers",pass-with-follow-ups,2026-07-13,docs/plans/active/foundation-and-first-import.md,No blockers; model failure and oversized disposable spike carried forward as risks
+VER-017,refresh-1,plan-packet-check,node active-packet field validator,pass,2026-07-13,docs/plans/active/foundation-and-first-import.md,Exactly one current Slice 4 packet with every required field
+VER-018,refresh-1,ledger-validation,node field-count validator,pass,2026-07-13,docs/ops/,All ledger field counts including risks were stable
+VER-019,slice-4,fixture-audit,node expected-tree count and scheme audit,pass,2026-07-13,tests/fixtures/chrome-bookmarks/expected-tree.json,Counts and missing timestamp totals matched ADR 0003
+VER-020,slice-4,privacy-scan,rg personal secret and network-domain patterns,pass,2026-07-13,tests/fixtures/chrome-bookmarks/,Only reserved example domains and synthetic example user path appeared
+VER-021,slice-4,full-test,npm test,pass,2026-07-13,package.json,Twenty-four tests passed independently
+VER-022,slice-4,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed independently
+VER-023,slice-4,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-024,slice-5,red-runtime,node --test tests/contract/shared-types.contract.test.ts,expected-fail,2026-07-13,tests/contract/shared-types.contract.test.ts,Failed because core contracts module did not exist
+VER-025,slice-5,red-typecheck,npm run typecheck,expected-fail,2026-07-13,tests/contract/shared-types.typecheck.ts,Failed because shared types did not exist
+VER-026,slice-5,focused-test,node --test tests/contract/shared-types.contract.test.ts,pass,2026-07-13,core/contracts/public.ts,Type-only module exposed no runtime keys
+VER-027,slice-5,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/shared-types.typecheck.ts,Brands shapes and Outcome constraints passed
+VER-028,slice-5,full-test,npm test,pass,2026-07-13,package.json,Twenty-five tests passed
+VER-029,slice-5,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-030,slice-6,architecture-structure,node catalog contract structure validator,pass,2026-07-13,docs/architecture/module-map.md,All catalog types defined and redundant hierarchy tokens absent
+VER-031,slice-6,full-test,npm test,pass,2026-07-13,package.json,Twenty-five tests passed
+VER-032,slice-6,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-033,slice-6,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-034,batch-2,completed-slice-audit,"Slices 4-6 audit against plan architecture tests and ledgers",pass-with-follow-ups,2026-07-13,docs/plans/active/foundation-and-first-import.md,Validator and persistence packets required contract-dependent refresh
+VER-035,refresh-2,plan-packet-check,node active-packet field validator,pass,2026-07-13,docs/plans/active/foundation-and-first-import.md,Exactly one current Slice 7 packet with every required field
+VER-036,refresh-2,ledger-validation,node field-count validator,pass,2026-07-13,docs/ops/,All core and extended ledger field counts were stable
+VER-037,slice-7,red-runtime,node --test tests/contract/catalog-snapshot.contract.test.ts,expected-fail,2026-07-13,tests/contract/catalog-snapshot.contract.test.ts,Failed because catalog validator did not exist
+VER-038,slice-7,red-typecheck,npm run typecheck,expected-fail,2026-07-13,tests/contract/catalog-types.typecheck.ts,Failed because catalog public contract did not exist
+VER-039,slice-7,focused-test,node --test tests/contract/catalog-snapshot.contract.test.ts,pass,2026-07-13,modules/catalog/validate-snapshot.ts,Twelve contract and failure-path tests passed
+VER-040,slice-7,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/catalog-types.typecheck.ts,Strict type contract passed
+VER-041,slice-7,full-test,npm test,pass,2026-07-13,package.json,Thirty-seven tests passed
+VER-042,slice-7,contract-parity,node module-map and public-export name comparison,pass,2026-07-13,modules/catalog/public.ts,All sixteen Catalog type names matched the module map
+VER-043,slice-7,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-044,slice-8,platform-capability,node DOMParser and HTMLParser type check,pass,2026-07-13,docs/decisions/0004-html-parser.md,Both globals were undefined on Node 26.4.0
+VER-045,slice-8,decision-evidence,ADR source and API evidence review,pass,2026-07-13,docs/decisions/0004-html-parser.md,Selected parse5 8.0.1 with one dependency and bounded API
+VER-046,slice-9,red-runtime,node --test tests/contract/chrome-html.contract.test.ts,expected-fail,2026-07-13,tests/contract/chrome-html.contract.test.ts,Failed because the public adapter module did not exist
+VER-047,slice-9,red-typecheck,npm run typecheck,expected-fail,2026-07-13,tests/contract/chrome-html-types.typecheck.ts,Failed because the public adapter types did not exist
+VER-048,slice-9,focused-test,node --test tests/contract/chrome-html.contract.test.ts,pass,2026-07-13,adapters/chrome-html/public.ts,Type-only public module exposed no runtime values
+VER-049,slice-9,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/chrome-html-types.typecheck.ts,Exact method failure code and field unions passed
+VER-050,slice-9,full-test,npm test,pass,2026-07-13,package.json,Thirty-eight tests passed
+VER-051,slice-9,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-052,batch-3,completed-slice-audit,Slices 7 through 9 evidence review,pass-with-follow-ups,2026-07-13,docs/plans/active/foundation-and-first-import.md,Catalog validator parser decision and adapter contract matched scope; parser packet needs exact private algorithms
+VER-053,slice-10,focused-test,node --test tests/integration/chrome-html-import.test.ts,pass,2026-07-13,tests/integration/chrome-html-import.test.ts,Twelve mapping recovery and typed-failure tests passed independently
+VER-054,slice-10,full-test,npm test,pass,2026-07-13,package.json,Fifty tests passed independently
+VER-055,slice-10,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed independently
+VER-056,slice-10,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,Only parse5 8.0.1 and its entities 8.0.0 runtime dependency were added
+VER-057,slice-10,adversarial-boundary,node one-off overflow timestamp and text preservation checks,pass,2026-07-13,adapters/chrome-html/parse-bookmarks-html.ts,Overflow timestamp rejected and source whitespace plus chrome URL preserved
+VER-058,slice-10,file-size,wc -l parser and integration test,pass-with-note,2026-07-13,adapters/chrome-html/parse-bookmarks-html.ts,Parser is 291 lines; cohesive integration test is 375 lines
+VER-059,slice-10,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-060,slice-11,architecture-contract,manual method type and ownership review,pass,2026-07-13,docs/architecture/module-map.md,Service store ID and failure boundaries are complete with fixed migration order
+VER-061,slice-11,consumer-impact,repository import and signature scan,pass,2026-07-13,modules/catalog/public.ts,Only type contract tests require executable migration in Slice 12
+VER-062,slice-11,full-test,npm test,pass,2026-07-13,package.json,Fifty existing tests passed
+VER-063,slice-11,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Existing executable types remain internally consistent before migration
+VER-064,slice-11,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-065,slice-11,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-066,slice-12,red-typecheck,npm run typecheck,expected-fail,2026-07-13,tests/contract/catalog-types.typecheck.ts,Approved storage failure and port exports were absent
+VER-067,slice-12,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/catalog-types.typecheck.ts,Exact service store ID and failure signatures passed
+VER-068,slice-12,focused-test,node --test tests/contract/catalog-snapshot.contract.test.ts,pass,2026-07-13,modules/catalog/public.ts,Twelve existing validation contract tests passed
+VER-069,slice-12,full-test,npm test,pass,2026-07-13,package.json,Fifty tests passed
+VER-070,slice-12,runtime-surface,node require modules catalog public,pass,2026-07-13,modules/catalog/public.ts,Public contract exports zero runtime values
+VER-071,slice-12,file-size,wc -l public contract and type test,pass,2026-07-13,modules/catalog/public.ts,Both files remain below 200 lines
+VER-072,slice-12,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-073,slice-12,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-074,slice-13,focused-test,node --test tests/integration/catalog-service.test.ts,pass,2026-07-13,tests/integration/catalog-service.test.ts,Six fake-port service tests passed independently
+VER-075,slice-13,full-test,npm test,pass,2026-07-13,package.json,Fifty-six tests passed independently
+VER-076,slice-13,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed independently
+VER-077,slice-13,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency or lockfile change
+VER-078,slice-13,adversarial-order,node invalid captured-at dependency-call check,pass,2026-07-13,modules/catalog/catalog-service.ts,Validation failure returned with zero ID calls
+VER-079,slice-13,file-size,wc -l service and integration test,pass-with-note,2026-07-13,modules/catalog/catalog-service.ts,Service is 163 lines; cohesive integration test is 413 lines
+VER-080,slice-13,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-081,slice-13,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-082,batch-4,completed-slice-audit,Slices 11 through 13 evidence review,pass-with-follow-ups,2026-07-13,docs/plans/active/foundation-and-first-import.md,Typed failures executable ports and Catalog service align; SQLite mapping and transaction semantics need exact packet polish
+VER-083,slice-14,focused-test,node --test tests/unit/catalog-id-factory.test.ts,pass,2026-07-13,tests/unit/catalog-id-factory.test.ts,Twenty thousand prefixed UUIDs had valid syntax and no duplicates
+VER-084,slice-14,full-test,npm test,pass,2026-07-13,package.json,Fifty-seven tests passed independently
+VER-085,slice-14,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed independently
+VER-086,slice-14,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency or lockfile change
+VER-087,slice-14,file-size,wc -l implementation and unit test,pass,2026-07-13,modules/catalog/crypto-id-factory.ts,Both files are below 100 lines
+VER-088,slice-14,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-089,slice-15,schema-review,DDL index transaction and reconstruction review,pass,2026-07-13,docs/decisions/0005-catalog-sqlite-schema.md,Exact migration save load rollback and failure rules are documented
+VER-090,slice-15,full-test,npm test,pass,2026-07-13,package.json,Fifty-seven tests passed
+VER-091,slice-15,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-092,slice-15,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-093,slice-15,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-094,slice-16,focused-test,node --test tests/integration/catalog-sqlite.test.ts,pass,2026-07-13,tests/integration/catalog-sqlite.test.ts,Eight migration transaction reopen corruption and failure tests passed independently
+VER-095,slice-16,full-test,npm test,pass,2026-07-13,package.json,Sixty-five tests passed independently
+VER-096,slice-16,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed independently
+VER-097,slice-16,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency or lockfile change
+VER-098,slice-16,file-size,wc -l production and integration files,pass-with-note,2026-07-13,adapters/sqlite/,Production files are at or below 300 lines; cohesive integration test is 485 lines
+VER-099,slice-16,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-100,slice-16,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-101,slice-17,focused-benchmark-1,node --test tests/performance/import-10k.test.ts,pass,2026-07-13,tests/performance/import-10k.test.ts,10000 nodes survived end-to-end in 114.19 ms observed import window
+VER-102,slice-17,focused-benchmark-2,node --test tests/performance/import-10k.test.ts,pass,2026-07-13,tests/performance/import-10k.test.ts,Second independent run passed in 121.58 ms observed import window
+VER-103,slice-17,full-test,npm test,pass,2026-07-13,package.json,Sixty-six tests passed including benchmark
+VER-104,slice-17,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-105,slice-17,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency or lockfile change
+VER-106,slice-17,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-107,batch-5,completed-slice-audit,Slices 14 through 17 evidence review,pass-with-follow-ups,2026-07-13,docs/plans/active/foundation-and-first-import.md,ID allocation SQLite persistence and scale integrity align; real export gate remains before compatibility claim
+VER-108,slice-18,architecture-contract,Jobs contract and state-machine review,pass,2026-07-13,docs/architecture/module-map.md,Shared IDs queue service store ports and all legal transitions are explicit
+VER-109,slice-18,migration-review,consumer and implementation order review,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Shared IDs Jobs types service SQLite and worker are separate ordered slices
+VER-110,slice-18,full-test,npm test,pass,2026-07-13,package.json,Sixty-six existing tests passed
+VER-111,slice-18,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Existing executable contracts remain consistent before migration
+VER-112,slice-18,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-113,slice-18,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-114,slice-19,red-typecheck,npm run typecheck,expected-fail,2026-07-13,tests/contract/shared-types.typecheck.ts,Four approved shared identity exports were absent
+VER-115,slice-19,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/shared-types.typecheck.ts,Exact brands and cross-brand negative assignments passed
+VER-116,slice-19,runtime-surface,node shared contract require check,pass,2026-07-13,core/contracts/public.ts,Shared contract exports zero runtime values
+VER-117,slice-19,full-test,npm test,pass,2026-07-13,package.json,Sixty-six tests passed
+VER-118,slice-19,file-size,wc -l shared contract and type test,pass,2026-07-13,core/contracts/public.ts,Both files remain below 200 lines
+VER-119,slice-19,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-120,slice-20,red-runtime,node --test tests/contract/jobs.contract.test.ts,expected-fail,2026-07-13,tests/contract/jobs.contract.test.ts,Jobs public module was absent
+VER-121,slice-20,red-typecheck,npm run typecheck,expected-fail,2026-07-13,tests/contract/jobs-types.typecheck.ts,All Jobs exports and method signatures were absent
+VER-122,slice-20,focused-test,node --test tests/contract/jobs.contract.test.ts,pass,2026-07-13,modules/jobs/public.ts,Type-only module exposes zero runtime values
+VER-123,slice-20,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/jobs-types.typecheck.ts,Exact unions queue methods dependencies and atomic store commands passed
+VER-124,slice-20,full-test,npm test,pass,2026-07-13,package.json,Sixty-seven tests passed
+VER-125,slice-20,file-size,wc -l Jobs public and type tests,pass-with-note,2026-07-13,modules/jobs/public.ts,Public contract is 200 lines; cohesive parity test is 322 lines
+VER-126,slice-20,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-127,batch-6,completed-slice-audit,Slices 18 through 20 evidence review,pass-with-follow-ups,2026-07-13,docs/plans/active/durable-processing-and-health.md,Architecture shared identities and executable types align; service packet must fix canonicalization and validation order
+VER-128,slice-21,focused-tests,node --test Jobs service and transition tests,pass,2026-07-13,tests/integration/,Seventeen fake-store policy tests passed independently
+VER-129,slice-21,semantic-review,future notBefore scheduling audit,pass,2026-07-13,modules/jobs/job-queue-service.ts,Future scheduling is preserved and delegated unchanged to storage
+VER-130,slice-21,full-test,npm test,pass,2026-07-13,package.json,Eighty-four tests passed independently
+VER-131,slice-21,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-132,slice-21,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency or lockfile change
+VER-133,slice-21,file-size,wc -l Jobs service validation and tests,pass-with-note,2026-07-13,modules/jobs/,Service is 246 lines; cohesive validation helper is 354 lines; split tests are below 350 lines
+VER-134,slice-21,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-135,slice-21,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-136,slice-22,schema-review,ADR DDL and transaction mapping review,pass,2026-07-13,docs/decisions/0007-jobs-sqlite-schema.md,Every JobQueueStore method maps to a documented atomic algorithm
+VER-137,slice-22,queue-refinement,rolling queue breadth and dependency review,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Monolithic store split into enqueue lease transitions and progress facade slices
+VER-138,slice-22,full-test,npm test,pass,2026-07-13,package.json,Eighty-four tests passed
+VER-139,slice-22,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-140,slice-22,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-141,slice-22,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-142,slice-23,focused-tests,node --test Jobs schema and enqueue tests,pass,2026-07-13,tests/integration/,Nine migration and enqueue tests passed independently
+VER-143,slice-23,ddl-parity,ADR 0007 DDL comparison,pass,2026-07-13,adapters/sqlite/jobs-schema.ts,Tables indexes constraints and migration key match the ADR
+VER-144,slice-23,full-test,npm test,pass,2026-07-13,package.json,Ninety-three tests passed independently
+VER-145,slice-23,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-146,slice-23,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency or lockfile change
+VER-147,slice-23,file-size,wc -l production and integration files,pass-with-note,2026-07-13,adapters/sqlite/jobs-enqueue.ts,Production files below 300 lines; cohesive enqueue test is 534 lines
+VER-148,slice-23,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-149,slice-23,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-150,slice-24,focused-tests,node --test Jobs SQLite lease and recovery tests,pass,2026-07-13,tests/integration/,Ten lease and recovery tests passed independently
+VER-151,slice-24,transaction-review,recovery selection and CAS SQL review,pass,2026-07-13,adapters/sqlite/jobs-lease.ts,Expiry recovery and selection share one immediate transaction
+VER-152,slice-24,full-test,npm test,pass,2026-07-13,package.json,One-hundred-three tests passed
+VER-153,slice-24,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-154,slice-24,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency or lockfile change
+VER-155,slice-24,file-size,wc -l lease recovery and tests,pass,2026-07-13,adapters/sqlite/jobs-lease.ts,Production files at or below 300 lines and split tests below 425 lines
+VER-156,slice-24,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-157,slice-24,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-158,batch-7,completed-slice-audit,Slices 22 through 24 review,pass-with-follow-ups,2026-07-13,docs/plans/active/durable-processing-and-health.md,ADR enqueue and leasing match contract; large enqueue test and corruption-code limitation are non-blocking follow-ups
+VER-159,slice-25,focused-tests,npm run test:jobs-sqlite-transitions,pass,2026-07-13,tests/integration/,Thirteen completion failure and control tests passed independently
+VER-160,slice-25,transaction-review,completion failure and control SQL review,pass,2026-07-13,adapters/sqlite/jobs-transitions.ts,Strict validation CAS expiry branch and rollback rules match ADR 0007
+VER-161,slice-25,full-test,npm test,pass,2026-07-13,package.json,One-hundred-sixteen tests passed independently
+VER-162,slice-25,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-163,slice-25,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency change and tree is healthy
+VER-164,slice-25,file-size,wc -l transition production and test files,pass-with-note,2026-07-13,adapters/sqlite/jobs-transitions.ts,Tests split below 435 lines; two cohesive production files are 315 and 316 lines
+VER-165,slice-25,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-166,slice-25,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-167,slice-26,focused-tests,npm run test:jobs-sqlite-progress,pass,2026-07-13,tests/integration/,Ten progress facade and reopen tests passed independently
+VER-168,slice-26,transaction-review,progress recovery and invariant rollback SQL review,pass,2026-07-13,adapters/sqlite/jobs-progress.ts,Recovery commit and rollback boundaries match the polished packet
+VER-169,slice-26,facade-review,JobQueueStore method mapping review,pass,2026-07-13,adapters/sqlite/job-queue-store.ts,All six store methods delegate unchanged with no automatic migration
+VER-170,slice-26,full-test,npm test,pass,2026-07-13,package.json,One-hundred-twenty-six tests passed independently
+VER-171,slice-26,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-172,slice-26,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency change and tree is healthy
+VER-173,slice-26,file-size,wc -l progress facade and tests,pass,2026-07-13,adapters/sqlite/jobs-progress.ts,Production files below 190 and focused tests below 435 lines
+VER-174,slice-26,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All ledger rows retain stable schemas
+VER-175,slice-26,diff-check,git diff --check,pass,2026-07-13,,No whitespace errors
+VER-176,batch-8,completed-slice-audit,Slices 25 and 26 review,pass-with-follow-up,2026-07-13,docs/plans/active/durable-processing-and-health.md,Transitions progress facade and reopen match contracts; measure row-materialized progress cost when UI polling exists
+VER-177,slice-27,architecture-contract,Jobs worker and handler boundary review,pass,2026-07-13,docs/architecture/module-map.md,One-step routing interruption and durable-result ownership are explicit
+VER-178,slice-27,rolling-queue-refresh,Slices 28 through 33 refinement,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Public types worker service interruption proof and Health gates are independently reviewable
+VER-179,slice-27,ledger-validation,ruby CSV field-count validation,pass,2026-07-13,docs/ops/,All architecture and refresh records retain stable schemas
+VER-180,slice-28,red-typecheck,npm run typecheck,expected-fail,2026-07-13,tests/contract/jobs-types.typecheck.ts,Six architecture-approved worker exports were absent before implementation
+VER-181,slice-28,contract-test,node --test tests/contract/jobs.contract.test.ts,pass,2026-07-13,modules/jobs/public.ts,Jobs public contract remains runtime-empty
+VER-182,slice-28,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/jobs-types.typecheck.ts,Exact parity and negative assignments passed
+VER-183,slice-28,full-test,npm test,pass,2026-07-13,package.json,One-hundred-twenty-six tests passed independently
+VER-184,slice-28,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency change and tree is healthy
+VER-185,slice-28,file-size,wc -l public and typecheck contract,pass-with-note,2026-07-13,modules/jobs/public.ts,Public contract is 245 lines; cohesive compile-only parity matrix is 456 lines
+VER-186,slice-28,diff-ledger-check,git diff --check and CSV validation,pass,2026-07-13,docs/ops/,No whitespace errors and stable ledger schemas
+VER-187,slice-29,focused-tests,npm run test:jobs-worker,pass,2026-07-13,tests/integration/,Thirteen worker registry routing and interruption tests passed independently
+VER-188,slice-29,behavior-review,worker registry and operation review,pass,2026-07-13,modules/jobs/job-worker-service.ts,One lease one handler and at most one exact report are enforced
+VER-189,slice-29,semantic-boundary,handler output and exception review,pass,2026-07-13,modules/jobs/job-worker-validation.ts,Malformed output is rejected and exception prose is discarded
+VER-190,slice-29,full-test,npm test,pass,2026-07-13,package.json,One-hundred-thirty-nine tests passed independently
+VER-191,slice-29,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-192,slice-29,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency change and tree is healthy
+VER-193,slice-29,file-size,wc -l worker production helper and tests,pass,2026-07-13,modules/jobs/job-worker-service.ts,Production files below 210 and tests below 320 lines
+VER-194,slice-29,diff-ledger-check,git diff --check and CSV validation,pass,2026-07-13,docs/ops/,No whitespace errors and stable ledger schemas
+VER-195,slice-30,focused-test,npm run test:jobs-worker-resume,pass,2026-07-13,tests/integration/job-worker-resume.test.ts,Deterministic two-job interruption reopen and resume trace passed
+VER-196,slice-30,stable-key-review,fake durable result key inspection,pass,2026-07-13,tests/helpers/fake-durable-job-handler.ts,Key uses type target and input version only
+VER-197,slice-30,state-trace-review,attempt token row and stale lease assertions,pass,2026-07-13,tests/integration/job-worker-resume.test.ts,Attempt one interruption attempt two recovery and final persistence are exact
+VER-198,slice-30,full-test,npm test,pass,2026-07-13,package.json,One-hundred-forty tests passed independently
+VER-199,slice-30,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-200,slice-30,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency change and tree is healthy
+VER-201,slice-30,file-size,wc -l resume helpers and scenario,pass,2026-07-13,tests/integration/job-worker-resume.test.ts,Scenario is 389 lines and cohesive fixture helpers remain below 450
+VER-202,slice-30,diff-ledger-check,git diff --check and CSV validation,pass,2026-07-13,docs/ops/,No whitespace errors and stable ledger schemas
+VER-203,slice-30,learning-artifact,queue resume trace review,pass,2026-07-13,docs/reports/queue-resume-trace.md,Human-readable trace matches verified IDs states and acceptance boundary
+VER-204,batch-9,completed-slice-audit,Slices 27 through 30 review,pass-with-follow-up,2026-07-13,docs/plans/active/durable-processing-and-health.md,Worker contract types service and restart proof align; deterministic ID state is documented test scaffolding
+VER-205,slice-31,sandbox-focused-test,npm run test:health-transport,expected-fail,2026-07-13,tests/spikes/health-transport-fixtures.test.ts,Restricted sandbox denied loopback listen with EPERM
+VER-206,slice-31,focused-test,npm run test:health-transport with local listener permission,pass,2026-07-13,tests/spikes/health-transport-fixtures.test.ts,Six deterministic transport tests passed in about 202 milliseconds
+VER-207,slice-31,runtime-parity,Node and Undici version inspection,pass,2026-07-13,docs/decisions/0008-health-transport-fixtures.md,Recorded v26.4.0 Undici 8.5.0 darwin arm64 matches runtime
+VER-208,slice-31,semantic-boundary,fixture and ADR classification review,pass,2026-07-13,tests/helpers/health-loopback-fixture.ts,No Health status retry staleness or message parsing entered discovery code
+VER-209,slice-31,full-test,npm test with local listener permission,pass,2026-07-13,package.json,One-hundred-forty-six tests passed independently
+VER-210,slice-31,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-211,slice-31,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency change and tree is healthy
+VER-212,slice-31,file-size,wc -l fixture test and ADR,pass,2026-07-13,tests/helpers/health-loopback-fixture.ts,Fixture is 290 tests 244 and ADR 114 lines
+VER-213,slice-31,diff-ledger-check,git diff --check and CSV validation,pass,2026-07-13,docs/ops/,No whitespace errors and stable ledger schemas
+VER-214,slice-32,architecture-contract,Health module map replacement review,pass,2026-07-13,docs/architecture/module-map.md,Transport safety classification idempotency repository and staleness ownership are explicit
+VER-215,slice-32,semantic-boundary,Health network and model evidence review,pass,2026-07-13,docs/architecture/module-map.md,Only typed facts can influence observations and no model or single transient failure can issue review or deletion
+VER-216,slice-32,rolling-queue-refresh,Health implementation sequence refinement,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Executable types precede classifier service safe transport repository handler and staleness slices
+VER-217,slice-33,red-typecheck,npm run typecheck,expected-fail,2026-07-13,tests/contract/health-types.typecheck.ts,Health module and architecture-approved exports were absent
+VER-218,slice-33,contract-test,npm run test:health-contract,pass,2026-07-13,modules/health/public.ts,Health public contract exposes no runtime values
+VER-219,slice-33,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/health-types.typecheck.ts,Exact unions methods positive fixtures and negative assignments passed
+VER-220,slice-33,full-test,npm test with local listener permission,pass,2026-07-13,package.json,One-hundred-forty-seven tests passed independently
+VER-221,slice-33,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency change and tree is healthy
+VER-222,slice-33,file-size,wc -l Health public and contract files,pass,2026-07-13,modules/health/public.ts,Public contract is 214 lines and typecheck matrix is 335 lines
+VER-223,slice-33,diff-ledger-check,git diff --check and CSV validation,pass,2026-07-13,docs/ops/,No whitespace errors and stable ledger schemas
+VER-224,slice-34,focused-tests,npm run test:health-classification,pass,2026-07-13,tests/unit/,Eleven pure classifier and redirect tests passed independently
+VER-225,slice-34,mapping-review,HTTP redirect and transport failure table inspection,pass,2026-07-13,modules/health/health-fact-classification.ts,Every architecture-owned mapping is exact
+VER-226,slice-34,semantic-boundary,body header and diagnostic non-interference review,pass,2026-07-13,modules/health/health-fact-validation.ts,Only typed codes and statuses select classification
+VER-227,slice-34,full-test,npm test with local listener permission,pass,2026-07-13,package.json,One-hundred-fifty-eight tests passed independently
+VER-228,slice-34,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit typecheck passed
+VER-229,slice-34,dependency-tree,npm ls --all,pass,2026-07-13,package-lock.json,No dependency change and tree is healthy
+VER-230,slice-34,file-size,wc -l classifier validator and tests,pass,2026-07-13,modules/health/health-fact-classification.ts,Production files are 190 and 299 lines; tests are 380 and 161
+VER-231,slice-34,diff-ledger-check,git diff --check and CSV validation,pass,2026-07-13,docs/ops/,No whitespace errors and stable ledger schemas
+VER-232,slice-35,architecture-correction,Health checker and staleness ownership split,pass,2026-07-13,docs/architecture/module-map.md,Service gate no longer requires a stub future policy
+VER-233,slice-36,red-typecheck,npm run typecheck,expected-fail,2026-07-13,tests/contract/health-types.typecheck.ts,Two ownership interfaces were absent before migration
+VER-234,slice-36,contract-test,npm run test:health-contract,pass,2026-07-13,modules/health/public.ts,Health public module remains runtime-empty
+VER-235,slice-36,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/health-types.typecheck.ts,Checker policy and composed service parity passed
+VER-236,slice-36,full-test,npm test with local listener permission,pass,2026-07-13,package.json,One-hundred-fifty-eight tests passed independently
+VER-237,slice-36,file-size,wc -l Health public and typecheck matrix,pass,2026-07-13,modules/health/public.ts,Public contract is 219 lines and typecheck matrix is 358
+VER-238,slice-36,diff-ledger-check,git diff --check and CSV validation,pass,2026-07-13,docs/ops/,No whitespace errors and stable ledger schemas

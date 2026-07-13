@@ -1,0 +1,93 @@
+[
+  {
+    "kind": "folder",
+    "title": "Bookmarks Bar",
+    "addDateRaw": "1700000000",
+    "lastModifiedRaw": "1700000001",
+    "children": [
+      {
+        "kind": "bookmark",
+        "title": "Example & Reference",
+        "url": "https://example.com/reference?a=1&b=2",
+        "addDateRaw": "1700000002"
+      }
+    ]
+  },
+  {
+    "kind": "folder",
+    "title": "Bookmarks Bar",
+    "addDateRaw": "1700000100",
+    "lastModifiedRaw": "1700000101",
+    "children": [
+      {
+        "kind": "bookmark",
+        "title": "Same Title",
+        "url": "https://example.com/alpha",
+        "addDateRaw": "1700000102"
+      },
+      {
+        "kind": "bookmark",
+        "title": "Shared Link",
+        "url": "https://example.net/shared",
+        "addDateRaw": "1700000103",
+        "lastModifiedRaw": "1700000104"
+      },
+      {
+        "kind": "folder",
+        "title": "Projects & Notes",
+        "addDateRaw": "1700000105",
+        "children": [
+          {
+            "kind": "bookmark",
+            "title": "Same Title",
+            "url": "https://example.org/same-title",
+            "addDateRaw": "1700000106"
+          },
+          {
+            "kind": "folder",
+            "title": "Empty Folder",
+            "children": []
+          },
+          {
+            "kind": "folder",
+            "title": "Special Links",
+            "addDateRaw": "1700000107",
+            "lastModifiedRaw": "1700000108",
+            "children": [
+              {
+                "kind": "bookmark",
+                "title": "Duplicate URL",
+                "url": "https://example.net/shared",
+                "lastModifiedRaw": "1700000109"
+              },
+              {
+                "kind": "bookmark",
+                "title": "Local Notes",
+                "url": "file:///Users/example/Documents/notes.html"
+              },
+              {
+                "kind": "bookmark",
+                "title": "Chrome Bookmarks",
+                "url": "chrome://bookmarks/",
+                "addDateRaw": "1700000110"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "folder",
+        "title": "No Dates & Folder",
+        "lastModifiedRaw": "1700000111",
+        "children": [
+          {
+            "kind": "bookmark",
+            "title": "Entity & Link",
+            "url": "https://example.org/missing-date",
+            "lastModifiedRaw": "1700000112"
+          }
+        ]
+      }
+    ]
+  }
+]

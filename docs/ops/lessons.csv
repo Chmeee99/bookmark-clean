@@ -1,0 +1,3 @@
+id,date,area,lesson,rule,status
+LES-001,2026-07-13,model-routing,Luna beats Terra on the user's price-intelligence preference,Use Luna max for executor-safe delegated slices and avoid Terra unless the user changes this preference,active
+LES-002,2026-07-13,goal-economics,An unbounded long-running goal consumed far more tokens than the user expected,Surface token usage at meaningful checkpoints and obtain an explicit budget before resuming expensive delegated execution,active
