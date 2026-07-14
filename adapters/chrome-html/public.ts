@@ -34,3 +34,22 @@ export interface ChromeHtmlImportFailure {
   readonly field: ChromeHtmlImportFailureField;
   readonly diagnostic?: string;
 }
+
+export declare function parseBookmarksHtml(
+  request: ChromeHtmlImportRequest,
+): Outcome<BookmarkSnapshotInput, ChromeHtmlImportFailure>;
+
+interface ChromeHtmlRuntime {
+  parseBookmarksHtml: typeof parseBookmarksHtml;
+}
+
+declare const require: (specifier: "./parse-bookmarks-html.ts") => unknown;
+declare const module: {
+  exports: { parseBookmarksHtml: typeof parseBookmarksHtml };
+};
+
+const { parseBookmarksHtml: parseBookmarksHtmlRuntime } = require(
+  "./parse-bookmarks-html.ts",
+) as ChromeHtmlRuntime;
+
+module.exports = { parseBookmarksHtml: parseBookmarksHtmlRuntime };

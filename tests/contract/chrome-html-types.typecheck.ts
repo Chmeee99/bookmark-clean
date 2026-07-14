@@ -7,6 +7,7 @@ import type {
   ChromeHtmlImportFailureField,
   ChromeHtmlImportRequest,
 } from "../../adapters/chrome-html/public.js";
+import { parseBookmarksHtml } from "../../adapters/chrome-html/public.js";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -35,6 +36,9 @@ type ParseMethod = Assert<
     ) => Outcome<BookmarkSnapshotInput, ChromeHtmlImportFailure>
   >
 >;
+type PublicParser = Assert<
+  Equal<typeof parseBookmarksHtml, ChromeHtmlImporter["parse"]>
+>;
 
 declare const capturedAt: IsoDateTime;
 const request: ChromeHtmlImportRequest = { html: "<DL></DL>", capturedAt };
@@ -52,5 +56,6 @@ failure.field = "parser_message";
 void (null as unknown as FailureCodes);
 void (null as unknown as FailureFields);
 void (null as unknown as ParseMethod);
+void (null as unknown as PublicParser);
 void request;
 void failure;

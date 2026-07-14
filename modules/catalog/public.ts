@@ -131,3 +131,44 @@ export interface CatalogIdFactory {
   nextSnapshotId(): SnapshotId;
   nextBookmarkId(): BookmarkId;
 }
+
+export interface CatalogServiceDependencies {
+  readonly idFactory: CatalogIdFactory;
+  readonly store: CatalogSnapshotStore;
+}
+
+export declare function createBookmarkCatalog(
+  dependencies: CatalogServiceDependencies,
+): BookmarkCatalog;
+
+export declare function createCryptoCatalogIdFactory(): CatalogIdFactory;
+
+interface CatalogServiceRuntime {
+  createBookmarkCatalog: typeof createBookmarkCatalog;
+}
+
+interface CatalogIdFactoryRuntime {
+  createCryptoCatalogIdFactory: typeof createCryptoCatalogIdFactory;
+}
+
+declare const require: (
+  specifier: "./catalog-service.ts" | "./crypto-id-factory.ts",
+) => unknown;
+declare const module: {
+  exports: {
+    createBookmarkCatalog: typeof createBookmarkCatalog;
+    createCryptoCatalogIdFactory: typeof createCryptoCatalogIdFactory;
+  };
+};
+
+const { createBookmarkCatalog: createBookmarkCatalogRuntime } = require(
+  "./catalog-service.ts",
+) as CatalogServiceRuntime;
+const { createCryptoCatalogIdFactory: createCryptoCatalogIdFactoryRuntime } = require(
+  "./crypto-id-factory.ts",
+) as CatalogIdFactoryRuntime;
+
+module.exports = {
+  createBookmarkCatalog: createBookmarkCatalogRuntime,
+  createCryptoCatalogIdFactory: createCryptoCatalogIdFactoryRuntime,
+};

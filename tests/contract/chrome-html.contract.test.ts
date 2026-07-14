@@ -18,10 +18,13 @@ function assertDeepEqual(actual: unknown, expected: unknown, message: string): v
   }
 }
 
-test("Chrome HTML adapter public contract exposes no runtime surface", () => {
+test("Chrome HTML adapter public contract exposes only its parser", () => {
   assertDeepEqual(
     Object.keys(chromeHtmlPublic),
-    [],
-    "Chrome HTML adapter public module has runtime exports",
+    ["parseBookmarksHtml"],
+    "Chrome HTML adapter public runtime exports changed",
   );
+  if (typeof chromeHtmlPublic.parseBookmarksHtml !== "function") {
+    throw new Error("Chrome HTML public parser should be a function");
+  }
 });

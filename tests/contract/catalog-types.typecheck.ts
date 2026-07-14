@@ -21,6 +21,11 @@ import type {
   SourceBookmarkFolder,
   SourceBookmarkNode,
 } from "../../modules/catalog/public.js";
+import {
+  createBookmarkCatalog,
+  createCryptoCatalogIdFactory,
+  type CatalogServiceDependencies,
+} from "../../modules/catalog/public.js";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -71,6 +76,14 @@ type IdFactoryContract = Assert<Equal<CatalogIdFactory, {
   nextSnapshotId(): SnapshotId;
   nextBookmarkId(): BookmarkId;
 }>>;
+type CatalogFactoryContract = Assert<Equal<
+  typeof createBookmarkCatalog,
+  (dependencies: CatalogServiceDependencies) => BookmarkCatalog
+>>;
+type IdFactoryCreatorContract = Assert<Equal<
+  typeof createCryptoCatalogIdFactory,
+  () => CatalogIdFactory
+>>;
 
 declare const folder: SourceBookmarkFolder;
 declare const bookmark: SourceBookmark;
@@ -97,5 +110,7 @@ void (null as unknown as SourceNodes);
 void (null as unknown as CatalogContract);
 void (null as unknown as StoreContract);
 void (null as unknown as IdFactoryContract);
+void (null as unknown as CatalogFactoryContract);
+void (null as unknown as IdFactoryCreatorContract);
 void invalidSource;
 void wrongSnapshotId;

@@ -67,8 +67,17 @@ function expectFailure(
   assertDeepEqual(result.error, { code, path, field }, "Failure changed");
 }
 
-test("Catalog public contract exposes no runtime surface", () => {
-  assertDeepEqual(Object.keys(catalogPublic), [], "Catalog public module has runtime exports");
+test("Catalog public contract exposes only its runtime factories", () => {
+  assertDeepEqual(
+    Object.keys(catalogPublic).sort(),
+    ["createBookmarkCatalog", "createCryptoCatalogIdFactory"],
+    "Catalog public runtime exports changed",
+  );
+  assert(
+    typeof catalogPublic.createBookmarkCatalog === "function" &&
+      typeof catalogPublic.createCryptoCatalogIdFactory === "function",
+    "Catalog runtime factories should be functions",
+  );
 });
 
 test("valid and empty snapshots retain their references without mutation", () => {

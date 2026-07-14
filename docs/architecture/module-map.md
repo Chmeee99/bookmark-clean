@@ -1,11 +1,11 @@
 # Bookmark Clean module map
 
-Status: target architecture for pre-implementation review  
-Date: 2026-07-12
+Status: current boundaries plus deferred targets
+Date: 2026-07-14
 
 ## System shape
 
-Bookmark Clean is a local application with a thin Chrome connector. A small orchestration core coordinates use cases through module contracts. Runtime modules own domain behavior. Adapters own SQLite, LM Studio, HTTP, HTML extraction, Chrome, and browser-specific details.
+Bookmark Clean is a local application with a thin Chrome connector. The first runnable surface is a local import CLI. A small orchestration core coordinates use cases through module contracts. Runtime modules own domain behavior. Adapters own SQLite, LM Studio, HTTP, HTML extraction, Chrome, and browser-specific details.
 
 No module may import another module's internal files. Each module exposes one `public.ts` entry point containing its contract and public value types. Shared primitives are limited to opaque IDs, timestamps, result types, and version identifiers.
 
@@ -69,18 +69,36 @@ Public contract:
 
 ```ts
 interface BookmarkCleanApp {
-  importSnapshot(
-    input: BookmarkSnapshotInput,
-  ): Promise<Outcome<ImportSummary, CatalogFailure>>;
-  startProcessing(request: StartProcessingRequest): Promise<JobBatchSummary>;
-  pauseProcessing(batchId: string): Promise<void>;
-  search(request: SearchRequest): Promise<SearchResponse>;
-  decideReviewItem(request: ReviewDecisionRequest): Promise<ReviewItem>;
-  applyApprovedChangeSet(id: string): Promise<ApplyChangeSetResult>;
+  importChromeHtml(
+    request: ChromeHtmlImportRequest,
+  ): Promise<ImportChromeHtmlOutcome>;
 }
+
+type ImportChromeHtmlFailure =
+  | {
+      readonly stage: "source";
+      readonly failure: ChromeHtmlImportFailure;
+    }
+  | {
+      readonly stage: "catalog";
+      readonly failure: CatalogFailure;
+    };
+
+type ImportChromeHtmlOutcome =
+  | { readonly ok: true; readonly value: ImportSummary }
+  | { readonly ok: false; readonly error: ImportChromeHtmlFailure };
+
+interface BookmarkCleanAppDependencies {
+  readonly importer: ChromeHtmlImporter;
+  readonly catalog: BookmarkCatalog;
+}
+
+declare function createBookmarkCleanApp(
+  dependencies: BookmarkCleanAppDependencies,
+): BookmarkCleanApp;
 ```
 
-The orchestrator wires catalog, jobs, health, extraction, enrichment, retrieval, and review contracts. It may define transaction boundaries and use-case sequencing. It is forbidden to know SQL, Chrome API calls, HTTP behavior, prompt text, model response repair, DOM structure, vector representation, or UI state.
+For the first runnable path, the orchestrator calls the Chrome HTML importer and passes successful input to Catalog. It wraps typed failures with their authoring stage without parsing diagnostics or repairing meaning. `ImportChromeHtmlOutcome` retains the shared outcome shape but is declared locally because the shared `Outcome` contract requires its error itself to own a `code`; adding a flattened Orchestrator code would duplicate author-owned meaning. Later use cases may coordinate Jobs and future modules through additional contracts. The orchestrator is forbidden to know files, command-line arguments, SQL, database lifecycle, Chrome API calls, HTTP behavior, prompt text, model response repair, DOM structure, vector representation, or UI state.
 
 ## Catalog module
 
@@ -215,6 +233,17 @@ interface CatalogIdFactory {
   nextSnapshotId(): SnapshotId;
   nextBookmarkId(): BookmarkId;
 }
+
+interface CatalogServiceDependencies {
+  readonly idFactory: CatalogIdFactory;
+  readonly store: CatalogSnapshotStore;
+}
+
+declare function createBookmarkCatalog(
+  dependencies: CatalogServiceDependencies,
+): BookmarkCatalog;
+
+declare function createCryptoCatalogIdFactory(): CatalogIdFactory;
 ```
 
 Import contract rules:
@@ -278,6 +307,10 @@ interface ChromeHtmlImportFailure {
   readonly field: ChromeHtmlImportFailureField;
   readonly diagnostic?: string;
 }
+
+declare function parseBookmarksHtml(
+  request: ChromeHtmlImportRequest,
+): Outcome<BookmarkSnapshotInput, ChromeHtmlImportFailure>;
 ```
 
 Import contract rules:
@@ -1086,19 +1119,75 @@ Responsibility: implement module-owned persistence ports in one transactional lo
 Public contract:
 
 ```ts
-interface DatabaseRuntime {
-  migrate(registrations: readonly MigrationRegistration[]): Promise<void>;
-  transaction<T>(work: (scope: TransactionScope) => Promise<T>): Promise<T>;
-  backup(destination: string): Promise<DatabaseBackup>;
-  health(): Promise<DatabaseHealth>;
+interface CatalogDatabaseFailure {
+  readonly code: "storage_unavailable";
+}
+
+interface CatalogDatabaseSession {
+  readonly store: CatalogSnapshotStore;
+  close(): void;
+}
+
+declare function openCatalogDatabase(
+  databasePath: string,
+): Outcome<CatalogDatabaseSession, CatalogDatabaseFailure>;
+```
+
+`openCatalogDatabase` opens one Node SQLite connection, completes Catalog migration before returning, and closes the connection before returning a failure. The session owns exactly one open connection; `close` is idempotent. A later multi-module service may add a broader database runtime only after it has a concrete caller.
+
+Hides: Node SQLite types, connection lifecycle, pragmas, migrations table, prepared statements, FTS5 maintenance, BLOB encoding, and backup implementation.
+
+Allowed dependencies: Node SQLite API plus public module-owned persistence ports.
+
+Boundary notes: SQL stays inside adapter implementations or a module's private repository implementation. Apps and orchestrator code never execute SQL or receive a raw database handle. Every migration has an automated forward-migration test.
+
+## Local CLI app
+
+Responsibility: turn one import command into file input, application wiring, stable process output, and a process exit code.
+
+Public command:
+
+```text
+npm run import -- --input <bookmarks.html> --database <bookmarks.sqlite>
+```
+
+Successful stdout is one JSON line:
+
+```ts
+interface ImportCommandSuccess {
+  readonly ok: true;
+  readonly snapshotId: string;
+  readonly rootCount: number;
+  readonly folderCount: number;
+  readonly bookmarkCount: number;
 }
 ```
 
-Hides: connection lifecycle, pragmas, migrations table, prepared statements, FTS5 maintenance, BLOB encoding, backup implementation, and file paths.
+Failure stderr is one JSON line. It contains fixed codes and may include typed source or Catalog fields, but never exception prose or a parsed diagnostic:
 
-Allowed dependencies: Node SQLite API and filesystem adapter.
+```ts
+interface ImportCommandFailure {
+  readonly ok: false;
+  readonly code:
+    | "invalid_arguments"
+    | "input_unavailable"
+    | "storage_unavailable"
+    | "import_failed"
+    | "unexpected_failure";
+  readonly stage?: "source" | "catalog";
+  readonly failureCode?: string;
+  readonly path?: readonly number[];
+  readonly field?: string;
+}
+```
 
-Boundary notes: SQL stays inside adapter implementations or a module's private repository implementation. UI and orchestrator code never execute SQL. Every migration has an automated forward-migration test.
+Exit codes are `0` for success, `2` for invalid arguments, `3` for unreadable input, `4` for database open or migration failure, `5` for typed source or Catalog rejection, and `1` for an unexpected exception. The command creates its capture timestamp immediately after reading valid arguments. It always closes an opened database session in `finally`.
+
+Hides: argument parsing, filesystem calls, wall-clock access, JSON serialization, stream writes, and process exit-code assignment.
+
+Allowed dependencies: Node filesystem/process APIs and the public Orchestrator, Catalog runtime-factory, Chrome HTML runtime, and SQLite session contracts.
+
+Boundary notes: the CLI is the composition root. It may select concrete implementations but may not parse HTML, validate Catalog data, execute SQL, or interpret diagnostics. It prints no bookmark contents and never mutates Chrome.
 
 ## Web UI
 
@@ -1145,7 +1234,17 @@ To add a new provider, source, extractor, or review policy:
 - RESOLVED for first import: Chrome HTML source IDs derive from semantic node paths and are deterministic and unique within one output. Their literal encoding stays private and is not cross-snapshot identity; the implementation slice fixes and tests one encoding without widening this contract.
 - PROVISIONAL: cross-snapshot `BookmarkId` reuse. The first import allocates local IDs. A later reconciliation contract will define when an existing ID may be reused.
 - RESOLVED for first import: Catalog owns `CatalogSnapshotStore`, `CatalogIdFactory`, and typed storage failures. SQLite implements storage mechanics only; executable type migration and Catalog service implementation precede the SQLite store.
+- RESOLVED for first runnable import: `apps/local-cli` owns files and process behavior, `core/orchestrator` owns parse-then-import sequencing, and the SQLite adapter owns open-migrate-close. The command consumes public runtime entry points only.
 - PROVISIONAL: sanitized real-export coverage. ADR 0003 grounds the current provider-neutral fields, but a real-export probe remains required before claiming Chrome HTML compatibility.
+
+## Capability brief: first runnable import command
+
+- Behavior: read one Chrome HTML export, open and migrate one SQLite database, parse and import the snapshot, print a stable JSON summary, close the database, and return a stable exit code.
+- Placement: `core/orchestrator` owns the import use case; `apps/local-cli` owns files, clock, wiring, output, and exit codes; existing Chrome HTML, Catalog, and SQLite owners keep their current responsibilities.
+- Contract additions: Catalog exposes its service and ID-factory creators through `modules/catalog/public.ts`; Chrome HTML exposes its parser through `adapters/chrome-html/public.ts`; SQLite adds an opaque Catalog database session in `adapters/sqlite/public.ts`; the orchestrator adds the staged import contract in `core/orchestrator/public.ts`.
+- Consumers: the first and only consumer is `apps/local-cli`. Future local HTTP service composition may reuse the orchestrator and database session without reusing CLI parsing or output code.
+- Migration order: Catalog runtime entry point, Chrome HTML runtime entry point, SQLite session contract then implementation, Orchestrator contract then implementation, CLI composition and subprocess acceptance.
+- Explicitly out of scope: Jobs execution, Health, enrichment, search, web UI, Chrome API import, real-export compatibility claims, database backup, generic plugin registration, and Chrome mutation.
 
 ## Contract changelog
 
@@ -1158,3 +1257,5 @@ To add a new provider, source, extractor, or review policy:
 - 2026-07-13: replaced the provisional Health sketch with typed transport facts, safe manual redirects, idempotent observations, fixed classification rules, and a separate versioned staleness boundary; executable Health types precede service, transport, repository, handler, and threshold-policy slices.
 - 2026-07-13: split Health behavior into `HealthChecker` and `StalenessPolicy`, with `HealthService` as their composition, after the first service gate exposed that observation execution and history policy could not migrate safely in one runtime slice.
 - 2026-07-13: marked Health as a deferred target after removing its uncalled implementation and fixtures; the remaining executable types have only contract-test consumers and are removed in an isolated contract slice before future vertical replanning.
+- 2026-07-14: defined the first runnable import boundary; new consumers are the local CLI and its subprocess acceptance test, with public runtime entry points migrating before composition.
+- 2026-07-14: implemented the Orchestrator import outcome as a local staged union rather than flattening source and Catalog failures to satisfy the shared coded-error generic.

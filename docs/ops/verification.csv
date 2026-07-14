@@ -305,3 +305,40 @@ VER-303,slice-r8h,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Stri
 VER-304,slice-r8h,vertical-test,node --test tests/performance/import-10k.test.ts,pass,2026-07-13,tests/performance/import-10k.test.ts,Exactly ten-thousand nodes passed parse import persist close reopen and read-back
 VER-305,slice-r8h,full-test,npm test,pass,2026-07-13,package.json,All ninety-seven retained tests passed
 VER-306,slice-r8h,diff-and-size-gate,git diff --check and wc -l tests/integration/catalog-sqlite.test.ts,pass,2026-07-13,tests/integration/catalog-sqlite.test.ts,SQLite suite fell from 485 to 387 lines with no whitespace errors
+VER-307,runnable-import-planning,runtime-entrypoint-probe,require current public TypeScript modules under Node 26,pass,2026-07-14,modules/catalog/public.ts,Type-only Catalog and Chrome HTML public modules loaded safely and exposed no runtime values before their contract slices
+VER-308,runnable-import-planning,fresh-eyes-review,manual seven-slice queue review,pass,2026-07-14,docs/plans/active/first-runnable-import.md,Contract changes remained isolated and the queue refreshes after the first three slices
+VER-309,runnable-import-planning,diff-check,git diff --check,pass,2026-07-14,docs/architecture/module-map.md,Architecture and rolling-plan artifacts had no whitespace errors before ledger updates
+VER-310,runnable-import-planning,ledger-validation,node CSV field-count validator,pass,2026-07-14,docs/ops,All ops ledger rows retained their declared field counts after the planning update
+VER-311,slice-s1,red-runtime-contract,node --test tests/contract/catalog-snapshot.contract.test.ts,fail-expected,2026-07-14,tests/contract/catalog-snapshot.contract.test.ts,Catalog public module exposed no factories before implementation
+VER-312,slice-s1,red-typecheck,npm run typecheck,fail-expected,2026-07-14,tests/contract/catalog-types.typecheck.ts,Catalog public factory values and dependency type were absent before implementation
+VER-313,slice-s1,focused-test,node --test Catalog contract service and ID factory tests,pass,2026-07-14,modules/catalog/public.ts,All twelve focused Catalog tests passed through the new public runtime entry point
+VER-314,slice-s1,typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict no-emit TypeScript check passed
+VER-315,slice-s1,full-test,npm test,pass,2026-07-14,package.json,All ninety-seven retained tests passed
+VER-316,slice-s1,diff-check,git diff --check,pass,2026-07-14,modules/catalog/public.ts,Public factory slice had no whitespace errors
+VER-317,slice-s2,red-runtime-contract,node --test tests/contract/chrome-html.contract.test.ts,fail-expected,2026-07-14,tests/contract/chrome-html.contract.test.ts,Chrome HTML public module exposed no parser before implementation
+VER-318,slice-s2,red-typecheck,npm run typecheck,fail-expected,2026-07-14,tests/contract/chrome-html-types.typecheck.ts,Chrome HTML public parser value was absent before implementation
+VER-319,slice-s2,focused-test,node --test Chrome HTML contract and parser integration tests,pass,2026-07-14,adapters/chrome-html/public.ts,All seven focused parser tests passed through the public entry point
+VER-320,slice-s2,typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict no-emit TypeScript check passed
+VER-321,slice-s2,full-test,npm test,pass,2026-07-14,package.json,All ninety-seven retained tests passed
+VER-322,slice-s2,diff-check,git diff --check,pass,2026-07-14,adapters/chrome-html/public.ts,Public parser slice had no whitespace errors
+VER-323,slice-s3,red-integration,node --test tests/integration/catalog-database.test.ts,fail-expected,2026-07-14,tests/integration/catalog-database.test.ts,SQLite public session module did not exist before implementation
+VER-324,slice-s3,red-typecheck,npm run typecheck,fail-expected,2026-07-14,tests/contract/sqlite-types.typecheck.ts,SQLite session types and opener were absent before implementation
+VER-325,slice-s3,focused-test,node --test tests/integration/catalog-database.test.ts,pass,2026-07-14,adapters/sqlite/catalog-database.ts,Both real-file SQLite lifecycle tests passed
+VER-326,slice-s3,typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict no-emit TypeScript check passed
+VER-327,slice-s3,full-test,npm test,pass,2026-07-14,package.json,All ninety-nine retained tests passed
+VER-328,slice-s3,diff-check,git diff --check,pass,2026-07-14,adapters/sqlite/public.ts,SQLite session slice had no whitespace errors
+VER-329,slice-s4,red-integration,node --test tests/integration/bookmark-clean-app.test.ts,fail-expected,2026-07-14,tests/integration/bookmark-clean-app.test.ts,Orchestrator public runtime module did not exist before implementation
+VER-330,slice-s4,red-typecheck,npm run typecheck,fail-expected,2026-07-14,tests/contract/orchestrator-types.typecheck.ts,Orchestrator contract and factory were absent before implementation
+VER-331,slice-s4,green-runtime-attempt,node --test tests/integration/bookmark-clean-app.test.ts,fail-fixed,2026-07-14,core/orchestrator/bookmark-clean-app.ts,An export marker selected ESM execution and was removed to match repository runtime boundaries
+VER-332,slice-s4,focused-test,node --test tests/integration/bookmark-clean-app.test.ts,pass,2026-07-14,core/orchestrator/bookmark-clean-app.ts,All three sequencing and reference-preservation tests passed
+VER-333,slice-s4,typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict no-emit TypeScript check passed
+VER-334,slice-s4,runtime-entrypoint,node exact-key require probe,pass,2026-07-14,core/orchestrator/public.ts,Orchestrator public runtime exposed only createBookmarkCleanApp
+VER-335,slice-s4,full-test,npm test,pass,2026-07-14,package.json,All one hundred two retained tests passed including the scale proof
+VER-336,four-slice-review,focused-test,node --test thirteen cross-slice boundary tests,pass,2026-07-14,tests,All Catalog Chrome HTML SQLite session and Orchestrator boundary proofs passed together
+VER-337,four-slice-review,final-full-test,npm test,pass,2026-07-14,package.json,All one hundred two tests passed after the complete four-slice code diff
+VER-338,four-slice-review,final-typecheck-attempt,npm run typecheck,fail-fixed,2026-07-14,tests/contract/orchestrator-types.typecheck.ts,Formatting displaced one expected-error directive from its rejected property and was corrected
+VER-339,four-slice-review,final-typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict no-emit TypeScript check passed after the correction
+VER-340,four-slice-review,boundary-review,public-only import scan and manual diff review,pass,2026-07-14,core/orchestrator,Orchestrator uses injected public contracts and owns only sequencing with no semantic repair or provider internals
+VER-341,four-slice-review,diff-and-whitespace,git diff --check and trailing-whitespace scan,pass,2026-07-14,docs/plans/active/first-runnable-import.md,Tracked and new slice files had no whitespace errors
+VER-342,four-slice-review,plan-handoff,rolling queue inspection,pass,2026-07-14,docs/plans/active/first-runnable-import.md,S1 through S4 are completed and S5 is the sole next executable packet
+VER-343,four-slice-review,ledger-validation,node package and CSV field-count validator,pass,2026-07-14,docs/ops,Package JSON parsed and every ops ledger row retained its declared field count
