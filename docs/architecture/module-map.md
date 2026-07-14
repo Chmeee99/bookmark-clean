@@ -21,6 +21,7 @@ core/
   contracts/
 modules/
   catalog/
+  processing/
   jobs/
   health/
   extraction/
@@ -114,6 +115,9 @@ interface BookmarkCatalog {
   getSnapshot(
     id: SnapshotId,
   ): Promise<Outcome<BookmarkSnapshot | null, CatalogStorageFailure>>;
+  getBookmark(
+    id: BookmarkId,
+  ): Promise<Outcome<BookmarkLinkRecord | null, CatalogStorageFailure>>;
 }
 
 type BookmarkSource = "chrome_api" | "chrome_html";
@@ -227,6 +231,9 @@ interface CatalogSnapshotStore {
   load(
     id: SnapshotId,
   ): Promise<Outcome<BookmarkSnapshot | null, CatalogStorageFailure>>;
+  loadBookmark(
+    id: BookmarkId,
+  ): Promise<Outcome<BookmarkLinkRecord | null, CatalogStorageFailure>>;
 }
 
 interface CatalogIdFactory {
@@ -268,7 +275,7 @@ Hides: source-ID indexing, snapshot construction, validation traversal, count tr
 
 Allowed dependencies: shared contract types. The runtime Catalog service may depend on `CatalogSnapshotStore` and `CatalogIdFactory`; adapters implement those ports without importing Catalog internals.
 
-Boundary notes: adapters produce `BookmarkSnapshotInput` and may not decide catalog identity. The catalog validates input, requests local IDs, constructs immutable records, and returns typed validation or storage failures. Chrome IDs are source identifiers, not permanent global identity. `getBookmark`, scoped listing, reconciliation, and cross-snapshot identity reuse are deferred additive contracts; no caller may implement them by reaching into catalog internals. Migration order is executable public types first, Catalog service second, and SQLite store implementation third.
+Boundary notes: adapters produce `BookmarkSnapshotInput` and may not decide catalog identity. The catalog validates input, requests local IDs, constructs immutable records, and returns typed validation or storage failures. Chrome IDs are source identifiers, not permanent global identity. `getBookmark` is the narrow lookup required by bookmark job handlers; scoped listing, reconciliation, and cross-snapshot identity reuse remain deferred. No caller may reach into catalog internals. Migration order for the lookup is executable public types first, Catalog service second, and SQLite store implementation third.
 
 ## Chrome HTML adapter
 
@@ -329,6 +336,69 @@ Hides: `parse5` tree types, HTML recovery details, attribute lookup, timestamp c
 Allowed dependencies: shared contract types, Catalog public input types, and the parser API approved in ADR 0004.
 
 Boundary notes: this adapter produces Catalog input but does not allocate `BookmarkId` or `SnapshotId`, validate catalog identity, normalize URLs, deduplicate entries, or persist data. Catalog validation remains the receiving boundary. Adding a new failure code or changing timestamp and hierarchy semantics requires a separate contract slice.
+
+## Processing module
+
+Responsibility: turn a selected Catalog folder into a versioned bounded-work preview.
+
+Public contract:
+
+```ts
+type ProcessingProfileId = "health_check_v1";
+
+interface ProcessingPreviewRequest {
+  readonly snapshotId: SnapshotId;
+  readonly folderId: BookmarkId;
+  readonly profileId: ProcessingProfileId;
+}
+
+interface ProcessingWorkProfile {
+  readonly id: "health_check_v1";
+  readonly jobType: "health_check";
+  readonly maximumJobAttempts: 1;
+  readonly maximumNetworkRequestsPerJob: 6;
+  readonly maximumModelCallsPerJob: 0;
+}
+
+interface ProcessingPreview {
+  readonly snapshotId: SnapshotId;
+  readonly folderId: BookmarkId;
+  readonly folderTitle: string;
+  readonly profile: ProcessingWorkProfile;
+  readonly bookmarkCount: number;
+  readonly jobCount: number;
+  readonly maximumNetworkRequests: number;
+  readonly maximumModelCalls: number;
+}
+
+type ProcessingPreviewFailureCode =
+  | "invalid_request"
+  | "snapshot_not_found"
+  | "folder_not_found"
+  | "catalog_unavailable"
+  | "snapshot_invalid"
+  | "estimate_overflow";
+
+interface ProcessingPreviewFailure {
+  readonly code: ProcessingPreviewFailureCode;
+}
+
+interface ProcessingPlanner {
+  preview(
+    request: ProcessingPreviewRequest,
+  ): Promise<Outcome<ProcessingPreview, ProcessingPreviewFailure>>;
+}
+
+declare function createProcessingPlanner(catalog: BookmarkCatalog): ProcessingPlanner;
+```
+
+`health_check_v1` schedules one job for every bookmark below the selected folder. It allows one queue attempt, one request plus five manual redirect hops, and no in-check retry. Its complete run budget is therefore six requests per job and zero model calls. Multiplication outside the safe-integer range returns `estimate_overflow`.
+
+Hides: depth-first folder lookup, descendant counting, safe arithmetic, and the profile registry.
+
+Allowed dependencies: shared IDs and outcomes, the public Catalog read contract, and the public Jobs `JobType` value space.
+
+Boundary notes: Processing may read folder IDs, folder titles, node kinds, and hierarchy from typed Catalog snapshots. It never reads bookmark titles or URLs, executes SQL, enqueues Jobs, calls a network or model provider, or interprets diagnostics. A handler must honor the selected profile budget; changing a budget requires a new profile ID.
 
 ## Jobs module
 
@@ -654,7 +724,7 @@ Capability brief for durable processing:
 
 ## Health module
 
-Current implementation status: deferred target. The prior classifier and transport fixtures have been removed. The remaining executable `modules/health/public.ts` surface has no runtime consumer and exists only for two contract tests pending its isolated removal in recovery Slice R5B. A future Health vertical slice must revalidate this target contract against a real caller before restoring executable types.
+Current implementation status: deferred target. The prior executable contract, classifier, and transport fixtures were removed. A future Health vertical slice must revalidate this target contract against a real caller before restoring executable types.
 
 Responsibility: produce URL health observations and explainable staleness assessments.
 
@@ -754,6 +824,15 @@ interface HealthFailure {
 interface HealthChecker {
   check(request: HealthCheckRequest): Promise<Outcome<HealthObservation, HealthFailure>>;
 }
+
+interface HealthCheckJobHandlerDependencies {
+  readonly catalog: Pick<BookmarkCatalog, "getBookmark">;
+  readonly checker: HealthChecker;
+}
+
+declare function createHealthCheckJobHandler(
+  dependencies: HealthCheckJobHandlerDependencies,
+): JobHandler;
 
 interface StalenessPolicy {
   assessStaleness(input: StalenessInput): StalenessAssessment;
@@ -879,6 +958,7 @@ Observation and idempotency rules:
 - `saveIfAbsent` atomically inserts by that key. A concurrent identical observation returns the stored row. A different observation for the same key returns `observation_conflict`; local code never merges or repairs it.
 - Expected network outcomes, including timeout, DNS, TLS, unsupported URL, malformed response, and connection failure, produce durable observations and successful `check` outcomes. `invalid_request`, `input_conflict`, `invalid_configuration`, and `id_unavailable` are terminal service failures. `clock_unavailable`, `transport_unavailable`, and `storage_unavailable` are retry failures. Repository `observation_conflict` maps to terminal `input_conflict`; repository unavailability maps to retry `storage_unavailable`. Diagnostics remain opaque evidence.
 - The observation ID is a `JobResultId`, so a successful Health job can return it directly as `{ kind: "health_observation", id }` after the repository commit.
+- The Health job handler accepts only `health_check` leases. It resolves the bookmark through `BookmarkCatalog.getBookmark`, passes the exact bookmark ID, input version, and stored URL to `HealthChecker.check`, and returns the committed observation ID. Missing bookmarks and invalid targets are terminal typed failures. Catalog unavailability and retry Health failures remain retry failures. The handler does not parse diagnostics or infer URL meaning.
 
 Transport and request-safety rules:
 
@@ -917,6 +997,7 @@ Capability brief for first Health implementation:
 - Placement: extend the Health module. Transport adapters implement execution and request safety; SQLite implements the Health-owned repository port; the Jobs handler calls `check` and returns the committed observation ID.
 - Contract consumers: `HealthChecker` consumes transport/clock/ID/retry/delay/fingerprint/repository ports. `StalenessPolicy` consumes immutable observation history. A composition root may expose both as `HealthService`. The worker consumes `HealthChecker` through one Health `JobHandler`; UI/review consumers use stored observations and `StalenessPolicy`.
 - Migration order: executable Health types, deterministic classifier/service against fakes, Node transport cause fixtures plus safe-request design, SQLite repository, Health job handler, then staleness policy thresholds. Public contract changes remain isolated slices.
+- The first handler composes `HealthChecker` with Catalog lookup and uses `health_check_v1`: one queue attempt, no in-check retry, and at most five redirects. The preview budget and runtime configuration must match before the handler is registered.
 - Out of scope for the first implementation: concurrency limits, rendered browsing, page-classifier production, live-internet probes, deletion, and Chrome writes.
 
 ## Extraction module
@@ -1226,11 +1307,21 @@ interface InspectCommandFailure {
 
 Inspection exit codes are `0` for success, `2` for invalid arguments, `4` for database or store unavailability, `5` for an invalid stored snapshot, `6` for a missing snapshot, and `1` for an unexpected exception. The session closes before output on every opened path.
 
+The selected-folder preview command is:
+
+```text
+npm run --silent preview -- --database <bookmarks.sqlite> --snapshot <snapshot-id> --folder <folder-id>
+```
+
+Successful stdout is one JSON line matching `ProcessingPreview` with `ok: true`. The command selects `health_check_v1`; callers cannot override its limits through free-form arguments.
+
+Preview failure stderr is one JSON line with `ok: false` and one of `invalid_arguments`, `storage_unavailable`, `snapshot_invalid`, `snapshot_not_found`, `folder_not_found`, `estimate_overflow`, or `unexpected_failure`. Exit codes are `2`, `4`, `5`, `6`, `7`, `8`, and `1` respectively. The session closes before output on every opened path.
+
 Hides: argument parsing, filesystem calls, wall-clock access, JSON serialization, stream writes, and process exit-code assignment.
 
 Allowed dependencies: Node filesystem/process APIs and the public Orchestrator, Catalog runtime-factory, Chrome HTML runtime, and SQLite session contracts.
 
-Boundary notes: the CLI is the composition root. It may select concrete implementations but may not parse HTML, validate Catalog data, execute SQL, or interpret diagnostics. Import prints no bookmark contents. Inspection may print folder IDs and titles plus aggregate counts, but never bookmark titles, URLs, source IDs, dates other than snapshot capture time, or diagnostics. It never mutates Chrome.
+Boundary notes: the CLI is the composition root. It may select concrete implementations but may not parse HTML, validate Catalog data, execute SQL, calculate processing budgets, or interpret diagnostics. Import prints no bookmark contents. Inspection and preview may print folder IDs and titles plus aggregate counts, but never bookmark titles, URLs, source IDs, dates other than snapshot capture time, or diagnostics. It never mutates Chrome.
 
 ## Web UI
 
@@ -1298,6 +1389,24 @@ To add a new provider, source, extractor, or review policy:
 - Migration order: document this additive command contract, then add the command implementation and subprocess acceptance without changing existing import behavior.
 - Explicitly out of scope: bookmark titles or URLs in output, selected-folder job creation, HTTP/UI surfaces, reconciliation, health checks, extraction, enrichment, search, and Chrome mutation.
 
+## Capability brief: selected-folder processing preview
+
+- Behavior: load one snapshot, select one folder by local ID, count all descendant bookmarks, and report the bounded `health_check_v1` job, network-request, and model-call budget.
+- Placement: the new Processing module owns scope traversal and budget arithmetic. Catalog remains the source of snapshot truth. The Local CLI selects the fixed profile and owns database lifecycle plus structured process output.
+- Contract additions: add `ProcessingPlanner`, its request/result/failure types, the versioned `health_check_v1` profile, and the `preview` CLI command above. No existing executable module contract changes for this runnable increment.
+- Consumers: the Local CLI now; later processing-start orchestration must consume the same profile before enqueuing Jobs.
+- Migration order: Processing public types and contract tests, Processing service against Catalog fakes, then CLI composition and subprocess proof.
+- Explicitly out of scope: enqueueing, database writes beyond normal migrations, network/model calls, bookmark content in output, Health implementation, UI, and Chrome mutation.
+
+## Capability brief: first real processing handler
+
+- Behavior: resolve a leased bookmark ID to its stored URL, execute one bounded Health check, durably commit the observation, and return its typed result reference to the existing Jobs worker.
+- Placement: Catalog owns the bookmark lookup; Health owns checking and the `JobHandler` adapter; Jobs keeps lease and retry state; a later composition root registers the handler.
+- Contract changes: add `BookmarkCatalog.getBookmark` plus the matching store read in an isolated Catalog contract slice. Reintroduce the smallest caller-driven Health executable contract in a separate slice before implementing its checker, repository, or handler.
+- Consumers: the first Health handler consumes Catalog lookup and `HealthChecker`; the existing Jobs worker consumes the completed handler without changing its public contract.
+- Migration order: Catalog lookup types, Catalog service forwarding, SQLite lookup, minimal Health executable types, bounded checker and repository, then the Health handler and runtime registration. `health_check_v1` runtime limits must match the preview before registration.
+- Explicitly out of scope: extraction, enrichment, model calls, staleness policy, rendered browsing, deletion, Chrome writes, and smuggling URLs into Jobs targets or `inputVersion`.
+
 ## Contract changelog
 
 - 2026-07-12: initial target module map created; no runtime consumers exist.
@@ -1312,3 +1421,5 @@ To add a new provider, source, extractor, or review policy:
 - 2026-07-14: defined the first runnable import boundary; new consumers are the local CLI and its subprocess acceptance test, with public runtime entry points migrating before composition.
 - 2026-07-14: implemented the Orchestrator import outcome as a local staged union rather than flattening source and Catalog failures to satisfy the shared coded-error generic.
 - 2026-07-14: added the read-only inspect CLI contract; the local CLI and its subprocess test are the only new consumers and existing public module contracts do not change.
+- 2026-07-14: added the Processing preview contract and fixed `health_check_v1` budget; its first consumers are the Processing service and Local CLI.
+- 2026-07-14: approved additive Catalog bookmark lookup and the caller-driven Health handler boundary; their executable contracts migrate in isolated slices before handler registration.

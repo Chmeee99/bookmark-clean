@@ -48,3 +48,25 @@ Inspection uses the same failure stream convention as import. Its exit codes are
 - `6`: snapshot not found
 
 Inspection does not modify Chrome or write snapshots. Opening the database applies any pending Catalog migrations.
+
+## Preview selected-folder work
+
+Use a folder ID returned by inspection:
+
+```sh
+npm run --silent preview -- --database <bookmarks.sqlite> --snapshot <snapshot-id> --folder <folder-id>
+```
+
+The command reports the exact bookmark and job counts for `health_check_v1`. It also reports the maximum network requests and model calls. The current profile allows one job attempt, at most six network requests per bookmark, and no model calls.
+
+Preview is a dry run. It does not enqueue jobs, call the network or a model, or write snapshot data. Opening the database may apply pending Catalog migrations.
+
+Preview failures use stderr with these exits:
+
+- `1`: unexpected failure
+- `2`: invalid arguments
+- `4`: storage unavailable
+- `5`: invalid stored snapshot
+- `6`: snapshot not found
+- `7`: folder not found
+- `8`: estimate overflow

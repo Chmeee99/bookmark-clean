@@ -372,3 +372,19 @@ VER-370,slice-i1,documented-entrypoint,npm run silent import then silent inspect
 VER-371,slice-i1,size-and-diff-review,wc production and test files plus git diff check,pass,2026-07-14,apps/local-cli,Changed code and tests stayed below three hundred lines per file and the diff had no whitespace errors
 VER-372,slice-i1,final-verification-review,complete diff boundary privacy dependency and documentation review,pass-with-fix,2026-07-14,README.md,Corrected the claim about SQLite writes because the shared open path may apply Catalog migrations
 VER-373,slice-i1,ledger-validation,node CSV field-count validator,pass,2026-07-14,docs/ops,Every ops ledger row retained its declared field count after I1 recording
+VER-374,processing-preview,architecture-contract,module map capability and boundary review,pass,2026-07-14,docs/architecture/module-map.md,Processing ownership fixed health budget and handler lookup prerequisites were recorded before code
+VER-375,slice-p1,polish-gate,Processing slice packet review,pass-with-edits,2026-07-14,docs/plans/active/selected-folder-processing.md,Removed an impossible overflow test requirement while retaining the production guard
+VER-376,slice-p1,red-focused,node --test tests/integration/processing-planner.test.ts,fail-expected,2026-07-14,tests/integration/processing-planner.test.ts,Processing runtime module was absent
+VER-377,slice-p1,red-typecheck,npm run typecheck,fail-expected,2026-07-14,tests/integration/processing-planner.test.ts,Processing public types were absent
+VER-378,slice-p1,focused-test,node --test tests/integration/processing-planner.test.ts,pass,2026-07-14,modules/processing,All five planner tests passed
+VER-379,slice-p1,typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict typecheck passed after Processing implementation
+VER-380,slice-p2,polish-gate,Preview CLI packet review,pass,2026-07-14,docs/plans/active/selected-folder-processing.md,Shipped Processing types matched the CLI packet without edits
+VER-381,slice-p2,red-focused,node --test tests/integration/local-cli-preview.test.ts,fail-expected,2026-07-14,tests/integration/local-cli-preview.test.ts,Preview package script module and dispatch were absent
+VER-382,slice-p2,red-typecheck,npm run typecheck,fail-expected,2026-07-14,tests/integration/local-cli-preview.test.ts,Preview command types were absent
+VER-383,slice-p2,focused-test,node --test tests/integration/local-cli-preview.test.ts,pass,2026-07-14,apps/local-cli/preview-command.ts,All four preview subprocess tests passed
+VER-384,slice-p2,processing-cli-regression,node --test Processing and all local CLI tests,pass,2026-07-14,tests/integration,All nineteen focused tests passed
+VER-385,slice-p2,full-test,npm test,pass,2026-07-14,package.json,All one hundred twenty one tests passed
+VER-386,slice-p2,typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict no-emit TypeScript check passed
+VER-387,slice-p2,live-real-preview,production import inspect and preview against ignored real export,pass,2026-07-14,docs/plans/active/selected-folder-processing.md,Redacted proof returned 5726 jobs 34356 maximum network requests and zero model calls without content output
+VER-388,processing-preview,final-verification-review,complete diff boundary privacy dependency and plan audit,pass-with-fix,2026-07-14,docs/plans/active/first-health-handler.md,Expanded H1 to include all structural Catalog implementors required for a green contract migration
+VER-389,processing-preview,ledger-validation,node CSV field-count validator,pass,2026-07-14,docs/ops,Every ops ledger row retained its declared field count after preview and handler planning

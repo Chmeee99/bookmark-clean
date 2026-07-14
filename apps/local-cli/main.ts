@@ -6,6 +6,10 @@ import type {
   InspectCommandResult,
   RunInspectCommand,
 } from "./inspect-command.js";
+import type {
+  PreviewCommandResult,
+  RunPreviewCommand,
+} from "./preview-command.js";
 
 export type LocalCliMain = (arguments_: readonly string[]) => Promise<void>;
 
@@ -28,10 +32,21 @@ interface InspectCommandRuntime {
   runInspectCommand: RunInspectCommand;
 }
 
-type CommandResult = ImportCommandResult | InspectCommandResult;
+interface PreviewCommandRuntime {
+  runPreviewCommand: RunPreviewCommand;
+}
+
+type CommandResult =
+  | ImportCommandResult
+  | InspectCommandResult
+  | PreviewCommandResult;
 
 declare const require: (
-  specifier: "node:process" | "./import-command.ts" | "./inspect-command.ts",
+  specifier:
+    | "node:process"
+    | "./import-command.ts"
+    | "./inspect-command.ts"
+    | "./preview-command.ts",
 ) => unknown;
 
 const processApi = require("node:process") as ProcessApi;
@@ -41,6 +56,9 @@ const { runImportCommand } = require(
 const { runInspectCommand } = require(
   "./inspect-command.ts",
 ) as InspectCommandRuntime;
+const { runPreviewCommand } = require(
+  "./preview-command.ts",
+) as PreviewCommandRuntime;
 
 const unexpected: CommandResult = {
   exitCode: 1,
@@ -50,9 +68,13 @@ const unexpected: CommandResult = {
 const main: LocalCliMain = async (arguments_) => {
   let result: CommandResult;
   try {
-    result = arguments_[0] === "inspect"
-      ? await runInspectCommand(arguments_.slice(1))
-      : await runImportCommand(arguments_);
+    if (arguments_[0] === "inspect") {
+      result = await runInspectCommand(arguments_.slice(1));
+    } else if (arguments_[0] === "preview") {
+      result = await runPreviewCommand(arguments_.slice(1));
+    } else {
+      result = await runImportCommand(arguments_);
+    }
   } catch {
     result = unexpected;
   }
