@@ -356,3 +356,7 @@ VER-354,slice-s5,final-typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json
 VER-355,slice-s5,documented-failure-entrypoint,npm run --silent import without arguments,pass,2026-07-14,apps/local-cli/main.ts,The documented npm path emitted only invalid_arguments on stderr and exited two
 VER-356,slice-s5,boundary-and-diff-review,public import scan git diff check and trailing-whitespace scan,pass,2026-07-14,apps/local-cli,CLI contains no provider internals SQL diagnostics or premature process output and the diff is clean
 VER-357,slice-s5,ledger-validation,node package and CSV field-count validator,pass,2026-07-14,docs/ops,Package script parsed and every ops ledger row retained its declared field count
+VER-358,slice-s6,live-real-export,npm run --silent import with the private export and memory SQLite,pass,2026-07-14,docs/plans/active/first-runnable-import.md,Production CLI imported 1174 roots 427 folders and 13709 bookmarks without exposing contents
+VER-359,slice-s6,privacy-ignore,git check-ignore and git status,pass,2026-07-14,.gitignore,The private docs bookmark export is ignored and absent from repository status
+VER-360,slice-s6,privacy-review,manual scope and output review,pass,2026-07-14,docs/bookmarks_14_07_2026.html,Raw HTML titles URLs and icons were not printed copied transformed staged committed or deleted
+VER-361,slice-s6,ledger-validation,node CSV field-count validator,pass,2026-07-14,docs/ops,Every ops ledger row retained its declared field count after live acceptance recording
