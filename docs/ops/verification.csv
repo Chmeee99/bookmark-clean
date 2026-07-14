@@ -342,3 +342,17 @@ VER-340,four-slice-review,boundary-review,public-only import scan and manual dif
 VER-341,four-slice-review,diff-and-whitespace,git diff --check and trailing-whitespace scan,pass,2026-07-14,docs/plans/active/first-runnable-import.md,Tracked and new slice files had no whitespace errors
 VER-342,four-slice-review,plan-handoff,rolling queue inspection,pass,2026-07-14,docs/plans/active/first-runnable-import.md,S1 through S4 are completed and S5 is the sole next executable packet
 VER-343,four-slice-review,ledger-validation,node package and CSV field-count validator,pass,2026-07-14,docs/ops,Package JSON parsed and every ops ledger row retained its declared field count
+VER-344,slice-s5,polish-gate,slice packet review against implemented public entries,pass-with-edits,2026-07-14,docs/plans/active/first-runnable-import.md,Clarified argument grammar new README TypeScript coverage and cleanup-before-output ordering
+VER-345,slice-s5,red-subprocess,node --test tests/integration/local-cli-import.test.ts,fail-expected,2026-07-14,tests/integration/local-cli-import.test.ts,All five command cases failed before the package entry and app files existed
+VER-346,slice-s5,red-typecheck,npm run typecheck,fail-expected,2026-07-14,tests/integration/local-cli-import.test.ts,Both new production app modules were absent before implementation
+VER-347,slice-s5,focused-test,node --test tests/integration/local-cli-import.test.ts,pass,2026-07-14,apps/local-cli,All five subprocess contracts passed with real SQLite persistence read-back
+VER-348,slice-s5,typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict no-emit TypeScript check covered both app files through test type imports
+VER-349,slice-s5,scale-proof,node --test tests/performance/import-10k.test.ts,pass,2026-07-14,tests/performance/import-10k.test.ts,The ten-thousand-node production provider path passed
+VER-350,slice-s5,full-test,npm test,pass,2026-07-14,package.json,All one hundred seven tests passed
+VER-351,slice-s5,command-contract-review,npm run import with the minimal fixture,fail-fixed,2026-07-14,docs/architecture/module-map.md,Npm banners violated one-line stdout so the documented command moved to the silent npm entrypoint
+VER-352,slice-s5,documented-entrypoint,npm run --silent import with the minimal fixture and memory SQLite,pass,2026-07-14,README.md,The documented command emitted exactly one success JSON line with no npm wrapper output
+VER-353,slice-s5,final-full-test,npm test,pass,2026-07-14,package.json,All one hundred seven tests passed after the final command-contract correction
+VER-354,slice-s5,final-typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict no-emit TypeScript check passed after all S5 edits
+VER-355,slice-s5,documented-failure-entrypoint,npm run --silent import without arguments,pass,2026-07-14,apps/local-cli/main.ts,The documented npm path emitted only invalid_arguments on stderr and exited two
+VER-356,slice-s5,boundary-and-diff-review,public import scan git diff check and trailing-whitespace scan,pass,2026-07-14,apps/local-cli,CLI contains no provider internals SQL diagnostics or premature process output and the diff is clean
+VER-357,slice-s5,ledger-validation,node package and CSV field-count validator,pass,2026-07-14,docs/ops,Package script parsed and every ops ledger row retained its declared field count

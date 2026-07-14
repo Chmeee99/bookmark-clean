@@ -1148,7 +1148,7 @@ Responsibility: turn one import command into file input, application wiring, sta
 Public command:
 
 ```text
-npm run import -- --input <bookmarks.html> --database <bookmarks.sqlite>
+npm run --silent import -- --input <bookmarks.html> --database <bookmarks.sqlite>
 ```
 
 Successful stdout is one JSON line:
