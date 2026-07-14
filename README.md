@@ -1,6 +1,6 @@
 # Bookmark Clean
 
-Bookmark Clean currently provides one local command: import a Chrome bookmarks HTML export into a persistent SQLite database.
+Bookmark Clean imports a Chrome bookmarks HTML export into SQLite and can inspect the saved folder tree.
 
 ## Requirements
 
@@ -28,3 +28,23 @@ On failure, it writes one JSON line to stderr. Exit codes are:
 - `5`: typed import rejection
 
 The command does not modify Chrome or the source HTML file.
+
+## Inspect a snapshot
+
+Use the `snapshotId` returned by import:
+
+```sh
+npm run --silent inspect -- --database <bookmarks.sqlite> --snapshot <snapshot-id>
+```
+
+The command writes the stored folder hierarchy to stdout as one JSON line. Each folder has its ID, title, nested folders, and the number of bookmarks below it. Bookmark titles and URLs are omitted.
+
+Inspection uses the same failure stream convention as import. Its exit codes are:
+
+- `1`: unexpected failure
+- `2`: invalid arguments
+- `4`: storage unavailable
+- `5`: invalid stored snapshot
+- `6`: snapshot not found
+
+Inspection does not modify Chrome or write snapshots. Opening the database applies any pending Catalog migrations.

@@ -1143,7 +1143,7 @@ Boundary notes: SQL stays inside adapter implementations or a module's private r
 
 ## Local CLI app
 
-Responsibility: turn one import command into file input, application wiring, stable process output, and a process exit code.
+Responsibility: turn local bookmark commands into application wiring, stable process output, and process exit codes.
 
 Public command:
 
@@ -1183,11 +1183,54 @@ interface ImportCommandFailure {
 
 Exit codes are `0` for success, `2` for invalid arguments, `3` for unreadable input, `4` for database open or migration failure, `5` for typed source or Catalog rejection, and `1` for an unexpected exception. The command creates its capture timestamp immediately after reading valid arguments. It always closes an opened database session in `finally`.
 
+The read-only inspection command is:
+
+```text
+npm run --silent inspect -- --database <bookmarks.sqlite> --snapshot <snapshot-id>
+```
+
+Successful stdout is one JSON line. Folder order matches the stored snapshot; each `bookmarkCount` includes every bookmark below that folder:
+
+```ts
+interface InspectFolder {
+  readonly id: string;
+  readonly title: string;
+  readonly bookmarkCount: number;
+  readonly children: readonly InspectFolder[];
+}
+
+interface InspectCommandSuccess {
+  readonly ok: true;
+  readonly snapshotId: string;
+  readonly capturedAt: string;
+  readonly rootCount: number;
+  readonly folderCount: number;
+  readonly bookmarkCount: number;
+  readonly folders: readonly InspectFolder[];
+}
+```
+
+Inspection failure stderr is one JSON line:
+
+```ts
+interface InspectCommandFailure {
+  readonly ok: false;
+  readonly code:
+    | "invalid_arguments"
+    | "storage_unavailable"
+    | "snapshot_not_found"
+    | "snapshot_invalid"
+    | "unexpected_failure";
+}
+```
+
+Inspection exit codes are `0` for success, `2` for invalid arguments, `4` for database or store unavailability, `5` for an invalid stored snapshot, `6` for a missing snapshot, and `1` for an unexpected exception. The session closes before output on every opened path.
+
 Hides: argument parsing, filesystem calls, wall-clock access, JSON serialization, stream writes, and process exit-code assignment.
 
 Allowed dependencies: Node filesystem/process APIs and the public Orchestrator, Catalog runtime-factory, Chrome HTML runtime, and SQLite session contracts.
 
-Boundary notes: the CLI is the composition root. It may select concrete implementations but may not parse HTML, validate Catalog data, execute SQL, or interpret diagnostics. It prints no bookmark contents and never mutates Chrome.
+Boundary notes: the CLI is the composition root. It may select concrete implementations but may not parse HTML, validate Catalog data, execute SQL, or interpret diagnostics. Import prints no bookmark contents. Inspection may print folder IDs and titles plus aggregate counts, but never bookmark titles, URLs, source IDs, dates other than snapshot capture time, or diagnostics. It never mutates Chrome.
 
 ## Web UI
 
@@ -1235,7 +1278,7 @@ To add a new provider, source, extractor, or review policy:
 - PROVISIONAL: cross-snapshot `BookmarkId` reuse. The first import allocates local IDs. A later reconciliation contract will define when an existing ID may be reused.
 - RESOLVED for first import: Catalog owns `CatalogSnapshotStore`, `CatalogIdFactory`, and typed storage failures. SQLite implements storage mechanics only; executable type migration and Catalog service implementation precede the SQLite store.
 - RESOLVED for first runnable import: `apps/local-cli` owns files and process behavior, `core/orchestrator` owns parse-then-import sequencing, and the SQLite adapter owns open-migrate-close. The command consumes public runtime entry points only.
-- PROVISIONAL: sanitized real-export coverage. ADR 0003 grounds the current provider-neutral fields, but a real-export probe remains required before claiming Chrome HTML compatibility.
+- RESOLVED for one real export: the production CLI imported a private Chrome export with 1,174 roots, 427 folders, and 13,709 bookmarks. The raw file remains ignored and uncommitted; broader Chrome-version compatibility remains unclaimed.
 
 ## Capability brief: first runnable import command
 
@@ -1245,6 +1288,15 @@ To add a new provider, source, extractor, or review policy:
 - Consumers: the first and only consumer is `apps/local-cli`. Future local HTTP service composition may reuse the orchestrator and database session without reusing CLI parsing or output code.
 - Migration order: Catalog runtime entry point, Chrome HTML runtime entry point, SQLite session contract then implementation, Orchestrator contract then implementation, CLI composition and subprocess acceptance.
 - Explicitly out of scope: Jobs execution, Health, enrichment, search, web UI, Chrome API import, real-export compatibility claims, database backup, generic plugin registration, and Chrome mutation.
+
+## Capability brief: read-only library inspection
+
+- Behavior: open and migrate a Catalog database, load one snapshot by ID, and print the stored folder hierarchy with descendant bookmark counts without writing snapshot data.
+- Placement: `apps/local-cli` owns argument parsing, projection to the documented folder-only output, stream selection, and lifecycle. Catalog continues to own snapshot meaning and SQLite continues to own persistence.
+- Contract changes: add only the inspect CLI command, success shape, failure codes, and exit codes above. Existing Catalog, Orchestrator, SQLite, and import contracts remain unchanged.
+- Consumers: the local CLI subprocess test and the user selecting a folder for a later processing preview.
+- Migration order: document this additive command contract, then add the command implementation and subprocess acceptance without changing existing import behavior.
+- Explicitly out of scope: bookmark titles or URLs in output, selected-folder job creation, HTTP/UI surfaces, reconciliation, health checks, extraction, enrichment, search, and Chrome mutation.
 
 ## Contract changelog
 
@@ -1259,3 +1311,4 @@ To add a new provider, source, extractor, or review policy:
 - 2026-07-13: marked Health as a deferred target after removing its uncalled implementation and fixtures; the remaining executable types have only contract-test consumers and are removed in an isolated contract slice before future vertical replanning.
 - 2026-07-14: defined the first runnable import boundary; new consumers are the local CLI and its subprocess acceptance test, with public runtime entry points migrating before composition.
 - 2026-07-14: implemented the Orchestrator import outcome as a local staged union rather than flattening source and Catalog failures to satisfy the shared coded-error generic.
+- 2026-07-14: added the read-only inspect CLI contract; the local CLI and its subprocess test are the only new consumers and existing public module contracts do not change.

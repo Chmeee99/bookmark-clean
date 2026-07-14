@@ -360,3 +360,15 @@ VER-358,slice-s6,live-real-export,npm run --silent import with the private expor
 VER-359,slice-s6,privacy-ignore,git check-ignore and git status,pass,2026-07-14,.gitignore,The private docs bookmark export is ignored and absent from repository status
 VER-360,slice-s6,privacy-review,manual scope and output review,pass,2026-07-14,docs/bookmarks_14_07_2026.html,Raw HTML titles URLs and icons were not printed copied transformed staged committed or deleted
 VER-361,slice-s6,ledger-validation,node CSV field-count validator,pass,2026-07-14,docs/ops,Every ops ledger row retained its declared field count after live acceptance recording
+VER-362,slice-i1,architecture-contract,module map review and git diff check,pass,2026-07-14,docs/architecture/module-map.md,Inspection ownership shape exits lifecycle privacy and migration order were fixed before implementation
+VER-363,slice-i1,polish-gate,slice packet review against public Catalog SQLite and CLI contracts,pass-with-edits,2026-07-14,docs/plans/active/library-inspection.md,Required the existing nested fixture to prove descendant counts and empty folders
+VER-364,slice-i1,red-subprocess,node --test tests/integration/local-cli-inspect.test.ts,fail-expected,2026-07-14,tests/integration/local-cli-inspect.test.ts,Four behavior cases failed because inspect dispatch and its package script were absent
+VER-365,slice-i1,red-typecheck,npm run typecheck,fail-expected,2026-07-14,tests/integration/local-cli-inspect.test.ts,The inspect command module was absent before implementation
+VER-366,slice-i1,focused-test,node --test tests/integration/local-cli-inspect.test.ts,pass,2026-07-14,apps/local-cli/inspect-command.ts,All five inspect subprocess contracts passed
+VER-367,slice-i1,cli-regression,node --test local CLI import and inspect tests,pass,2026-07-14,apps/local-cli,All ten CLI subprocess tests passed
+VER-368,slice-i1,full-test,npm test,pass,2026-07-14,package.json,All one hundred twelve tests passed
+VER-369,slice-i1,typecheck,npm run typecheck,pass,2026-07-14,tsconfig.json,Strict no-emit TypeScript check passed
+VER-370,slice-i1,documented-entrypoint,npm run silent import then silent inspect against one persisted fixture,pass,2026-07-14,README.md,The documented path emitted one import line and one folder-only inspection line
+VER-371,slice-i1,size-and-diff-review,wc production and test files plus git diff check,pass,2026-07-14,apps/local-cli,Changed code and tests stayed below three hundred lines per file and the diff had no whitespace errors
+VER-372,slice-i1,final-verification-review,complete diff boundary privacy dependency and documentation review,pass-with-fix,2026-07-14,README.md,Corrected the claim about SQLite writes because the shared open path may apply Catalog migrations
+VER-373,slice-i1,ledger-validation,node CSV field-count validator,pass,2026-07-14,docs/ops,Every ops ledger row retained its declared field count after I1 recording

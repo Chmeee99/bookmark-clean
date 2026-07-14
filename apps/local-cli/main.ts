@@ -2,6 +2,10 @@ import type {
   ImportCommandResult,
   RunImportCommand,
 } from "./import-command.js";
+import type {
+  InspectCommandResult,
+  RunInspectCommand,
+} from "./inspect-command.js";
 
 export type LocalCliMain = (arguments_: readonly string[]) => Promise<void>;
 
@@ -20,22 +24,35 @@ interface ImportCommandRuntime {
   runImportCommand: RunImportCommand;
 }
 
-declare const require: (specifier: "node:process" | "./import-command.ts") => unknown;
+interface InspectCommandRuntime {
+  runInspectCommand: RunInspectCommand;
+}
+
+type CommandResult = ImportCommandResult | InspectCommandResult;
+
+declare const require: (
+  specifier: "node:process" | "./import-command.ts" | "./inspect-command.ts",
+) => unknown;
 
 const processApi = require("node:process") as ProcessApi;
 const { runImportCommand } = require(
   "./import-command.ts",
 ) as ImportCommandRuntime;
+const { runInspectCommand } = require(
+  "./inspect-command.ts",
+) as InspectCommandRuntime;
 
-const unexpected: ImportCommandResult = {
+const unexpected: CommandResult = {
   exitCode: 1,
   output: { ok: false, code: "unexpected_failure" },
 };
 
 const main: LocalCliMain = async (arguments_) => {
-  let result: ImportCommandResult;
+  let result: CommandResult;
   try {
-    result = await runImportCommand(arguments_);
+    result = arguments_[0] === "inspect"
+      ? await runInspectCommand(arguments_.slice(1))
+      : await runImportCommand(arguments_);
   } catch {
     result = unexpected;
   }
