@@ -621,6 +621,8 @@ Capability brief for durable processing:
 
 ## Health module
 
+Current implementation status: deferred target. The prior classifier and transport fixtures have been removed. The remaining executable `modules/health/public.ts` surface has no runtime consumer and exists only for two contract tests pending its isolated removal in recovery Slice R5B. A future Health vertical slice must revalidate this target contract against a real caller before restoring executable types.
+
 Responsibility: produce URL health observations and explainable staleness assessments.
 
 Public contract:
@@ -1155,3 +1157,4 @@ To add a new provider, source, extractor, or review policy:
 - 2026-07-13: added the one-step worker and handler-plugin contract, typed interruption boundaries, and durable-result-before-success ownership; executable worker types must land before worker implementation and the interruption harness.
 - 2026-07-13: replaced the provisional Health sketch with typed transport facts, safe manual redirects, idempotent observations, fixed classification rules, and a separate versioned staleness boundary; executable Health types precede service, transport, repository, handler, and threshold-policy slices.
 - 2026-07-13: split Health behavior into `HealthChecker` and `StalenessPolicy`, with `HealthService` as their composition, after the first service gate exposed that observation execution and history policy could not migrate safely in one runtime slice.
+- 2026-07-13: marked Health as a deferred target after removing its uncalled implementation and fixtures; the remaining executable types have only contract-test consumers and are removed in an isolated contract slice before future vertical replanning.

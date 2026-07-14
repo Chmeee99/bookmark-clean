@@ -4,53 +4,34 @@ import type {
   CatalogSnapshotStore,
   CatalogStorageFailure,
 } from "../../modules/catalog/public.js";
-import type {
-  IsoDateTime,
-  Outcome,
-  SnapshotId,
-} from "../../core/contracts/public.js";
+import type { IsoDateTime, Outcome, SnapshotId } from "../../core/contracts/public.js";
 
-interface NodeTestApi {
-  test(name: string, callback: () => void | Promise<void>): void;
-}
+interface NodeTestApi { test(name: string, callback: () => void | Promise<void>): void; }
 
-interface SqliteRow {
-  readonly [key: string]: unknown;
-}
+interface SqliteRow { readonly [key: string]: unknown; }
 
 interface SqliteStatement {
-  all(...parameters: unknown[]): SqliteRow[];
-  get(...parameters: unknown[]): SqliteRow | undefined;
+  all(...parameters: unknown[]): SqliteRow[]; get(...parameters: unknown[]): SqliteRow | undefined;
   run(...parameters: unknown[]): unknown;
 }
 
 interface SqliteDatabase {
-  readonly isOpen: boolean;
-  exec(sql: string): void;
+  readonly isOpen: boolean; exec(sql: string): void; close(): void;
   prepare(sql: string): SqliteStatement;
-  close(): void;
 }
 
-interface SqliteApi {
-  DatabaseSync: new (location: string) => SqliteDatabase;
-}
+interface SqliteApi { DatabaseSync: new (location: string) => SqliteDatabase; }
 
-interface TemporaryDatabaseApi {
-  withTemporaryDatabase<T>(
-    work: (database: { readonly databasePath: string }) => T | PromiseLike<T>,
-  ): Promise<T>;
-}
+type DatabaseWork<T> = (database: { readonly databasePath: string }) => T | PromiseLike<T>;
+
+interface TemporaryDatabaseApi { withTemporaryDatabase<T>(work: DatabaseWork<T>): Promise<T>; }
 
 interface CatalogSchemaApi {
-  migrateCatalogSchema(
-    database: SqliteDatabase,
-  ): Outcome<void, CatalogStorageFailure>;
+  migrateCatalogSchema(database: SqliteDatabase): Outcome<void, CatalogStorageFailure>;
 }
 
 interface CatalogStoreApi {
-  createSqliteCatalogSnapshotStore(
-    database: SqliteDatabase,
-  ): CatalogSnapshotStore;
+  createSqliteCatalogSnapshotStore(database: SqliteDatabase): CatalogSnapshotStore;
 }
 
 declare const require: (
@@ -76,17 +57,17 @@ const { createSqliteCatalogSnapshotStore } = loadModule(
 ) as CatalogStoreApi;
 
 const CAPTURED_AT = "2026-07-13T12:00:00.000Z" as IsoDateTime;
+type Bookmark = Extract<BookmarkRecord, { readonly kind: "bookmark" }>;
 
 function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) {
-    throw new Error(message);
-  }
+  if (!condition) throw new Error(message);
 }
 
 function assertEqual<T>(actual: T, expected: T, message: string): void {
-  if (actual !== expected) {
-    throw new Error(`${message}. Expected ${String(expected)}, received ${String(actual)}`);
-  }
+  assert(
+    actual === expected,
+    `${message}. Expected ${String(expected)}, received ${String(actual)}`,
+  );
 }
 
 function assertDeepEqual(actual: unknown, expected: unknown, message: string): void {
@@ -127,9 +108,7 @@ async function withDatabase<T>(
     try {
       return await work(database);
     } finally {
-      if (database.isOpen) {
-        database.close();
-      }
+      if (database.isOpen) database.close();
     }
   });
 }
@@ -151,57 +130,46 @@ function emptySnapshot(id: string): BookmarkSnapshot {
   };
 }
 
-function nestedSnapshot(id = "snapshot:nested"): BookmarkSnapshot {
-  const rootFolder: BookmarkRecord = {
-    id: "bookmark:root-folder" as never,
-    kind: "folder",
-    sourceId: "root-folder",
-    title: "Root folder",
-    dateAdded: "2026-07-13T12:00:01.000Z" as IsoDateTime,
-    children: [
-      {
-        id: "bookmark:first" as never,
-        kind: "bookmark",
-        sourceId: "first",
-        title: "First",
-        url: "file:///Users/example/notes.html",
-        dateLastUsed: "2026-07-13T12:00:02.000Z" as IsoDateTime,
-      },
-      {
-        id: "bookmark:empty-folder" as never,
-        kind: "folder",
-        sourceId: "empty-folder",
-        title: "Empty folder",
-        children: [],
-      },
-      {
-        id: "bookmark:second" as never,
-        kind: "bookmark",
-        sourceId: "second",
-        title: "Second",
-        url: "chrome://bookmarks/",
-        dateModified: "2026-07-13T12:00:03.000Z" as IsoDateTime,
-      },
-    ],
-  };
+function bookmark(id: string, sourceId: string, title: string, url: string): Bookmark {
+  return { id: id as never, kind: "bookmark", sourceId, title, url };
+}
 
+function oneBookmarkSnapshot(snapshotId: string, bookmarkId: string, title: string): BookmarkSnapshot {
+  return {
+    ...emptySnapshot(snapshotId),
+    roots: [bookmark(bookmarkId, "shared-source-id", title, `https://example.com/${title}`)],
+    rootCount: 1,
+    bookmarkCount: 1,
+  };
+}
+
+function nestedSnapshot(id = "snapshot:nested"): BookmarkSnapshot {
   return {
     id: id as SnapshotId,
     source: "chrome_api",
     capturedAt: CAPTURED_AT,
     roots: [
-      rootFolder,
       {
-        id: "bookmark:third" as never,
-        kind: "bookmark",
-        sourceId: "third",
-        title: "Third",
-        url: "mailto:user@example.com",
+        id: "bookmark:root-folder" as never,
+        kind: "folder",
+        sourceId: "root-folder",
+        title: "Root folder",
+        dateAdded: "2026-07-13T12:00:01.000Z" as IsoDateTime,
+        children: [
+          {
+            ...bookmark("bookmark:first", "first", "First", "file:///notes.html"),
+            dateLastUsed: "2026-07-13T12:00:02.000Z" as IsoDateTime,
+          },
+        ],
+      },
+      {
+        ...bookmark("bookmark:second", "second", "Second", "mailto:user@example.com"),
+        dateModified: "2026-07-13T12:00:03.000Z" as IsoDateTime,
       },
     ],
     rootCount: 2,
-    folderCount: 2,
-    bookmarkCount: 3,
+    folderCount: 1,
+    bookmarkCount: 2,
   };
 }
 
@@ -217,9 +185,7 @@ test("fresh and repeated migrations create the exact catalog schema once", async
     assert(second.ok, "Repeated migration should be an exact no-op");
 
     const tables = database
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?, ?) ORDER BY name",
-      )
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?, ?) ORDER BY name")
       .all("schema_migrations", "catalog_snapshots", "catalog_nodes")
       .map((row) => row.name);
     assertDeepEqual(
@@ -229,29 +195,17 @@ test("fresh and repeated migrations create the exact catalog schema once", async
     );
 
     const indexes = database
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?) ORDER BY name",
-      )
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?) ORDER BY name")
       .all("catalog_root_order", "catalog_child_order")
       .map((row) => row.name);
-    assertDeepEqual(
-      indexes,
-      ["catalog_child_order", "catalog_root_order"],
-      "Migration indexes changed",
-    );
+    assertDeepEqual(indexes, ["catalog_child_order", "catalog_root_order"], "Migration indexes changed");
 
     const foreignKeys = database.prepare("PRAGMA foreign_keys").get();
     assertEqual(foreignKeys?.foreign_keys, 1, "Foreign keys should be enabled");
 
-    const migrations = database
-      .prepare("SELECT migration_key, applied_at FROM schema_migrations")
-      .all();
+    const migrations = database.prepare("SELECT migration_key, applied_at FROM schema_migrations").all();
     assertEqual(migrations.length, 1, "Migration key should be recorded once");
-    assertEqual(
-      migrations[0]?.migration_key,
-      "001_catalog_snapshots",
-      "Wrong migration key",
-    );
+    assertEqual(migrations[0]?.migration_key, "001_catalog_snapshots", "Wrong migration key");
     assert(
       typeof migrations[0]?.applied_at === "string" &&
         /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(migrations[0].applied_at),
@@ -283,10 +237,7 @@ test("save and load preserve an exact nested snapshot and fresh record container
     if (sourceRoot === undefined || sourceRoot.kind !== "folder") {
       throw new Error("Expected a source root folder");
     }
-    assert(
-      loadedRoot.children !== sourceRoot.children,
-      "Load should return fresh child arrays",
-    );
+    assert(loadedRoot.children !== sourceRoot.children, "Load should return fresh child arrays");
   });
 });
 
@@ -303,9 +254,7 @@ test("missing snapshots return success with null and file reopen preserves data"
       const saved = await firstStore.save(snapshot);
       assert(saved.ok, "Reopen fixture should save");
     } finally {
-      if (firstDatabase.isOpen) {
-        firstDatabase.close();
-      }
+      if (firstDatabase.isOpen) firstDatabase.close();
     }
 
     const reopened = new DatabaseSync(databasePath);
@@ -314,9 +263,7 @@ test("missing snapshots return success with null and file reopen preserves data"
       assert(loaded.ok, "Reopened snapshot should load");
       assertDeepEqual(loaded.value, snapshot, "Reopened snapshot changed data");
     } finally {
-      if (reopened.isOpen) {
-        reopened.close();
-      }
+      if (reopened.isOpen) reopened.close();
     }
   });
 });
@@ -343,47 +290,16 @@ test("separate snapshots may reuse source IDs while local IDs remain distinct", 
   await withDatabase(async (database) => {
     migrate(database);
     const store = createSqliteCatalogSnapshotStore(database);
-    const first = emptySnapshot("snapshot:first");
-    const second = emptySnapshot("snapshot:second");
-    const firstBookmark = {
-      id: "bookmark:first" as never,
-      kind: "bookmark" as const,
-      sourceId: "shared-source-id",
-      title: "First",
-      url: "https://example.com/first",
-    };
-    const secondBookmark = {
-      id: "bookmark:second" as never,
-      kind: "bookmark" as const,
-      sourceId: "shared-source-id",
-      title: "Second",
-      url: "https://example.com/second",
-    };
-    const firstSnapshot: BookmarkSnapshot = {
-      ...first,
-      roots: [firstBookmark],
-      rootCount: 1,
-      bookmarkCount: 1,
-    };
-    const secondSnapshot: BookmarkSnapshot = {
-      ...second,
-      roots: [secondBookmark],
-      rootCount: 1,
-      bookmarkCount: 1,
-    };
+    const firstSnapshot = oneBookmarkSnapshot("snapshot:first", "bookmark:first", "First");
+    const secondSnapshot = oneBookmarkSnapshot("snapshot:second", "bookmark:second", "Second");
 
     assert((await store.save(firstSnapshot)).ok, "First source-ID snapshot should save");
     assert((await store.save(secondSnapshot)).ok, "Second source-ID snapshot should save");
 
     const loadedFirst = await store.load(firstSnapshot.id);
     const loadedSecond = await store.load(secondSnapshot.id);
-    assert(
-      loadedFirst.ok &&
-        loadedFirst.value !== null &&
-        loadedSecond.ok &&
-        loadedSecond.value !== null,
-      "Both source-ID snapshots should load",
-    );
+    assert(loadedFirst.ok && loadedFirst.value !== null, "First source-ID snapshot should load");
+    assert(loadedSecond.ok && loadedSecond.value !== null, "Second source-ID snapshot should load");
     assertDeepEqual(loadedFirst.value, firstSnapshot, "First source-ID snapshot changed");
     assertDeepEqual(loadedSecond.value, secondSnapshot, "Second source-ID snapshot changed");
     assertEqual(
@@ -411,20 +327,8 @@ test("a mid-save constraint failure rolls back the snapshot and every node", asy
           sourceId: "rollback-root",
           title: "Rollback root",
           children: [
-            {
-              id: "bookmark:valid-child" as never,
-              kind: "bookmark" as const,
-              sourceId: "valid-child",
-              title: "Valid child",
-              url: "https://example.com/valid",
-            },
-            {
-              id: "bookmark:invalid-child" as never,
-              kind: "bookmark" as const,
-              sourceId: "invalid-child",
-              title: "Invalid child",
-              url: "",
-            },
+            bookmark("bookmark:valid-child", "valid-child", "Valid child", "https://example.com"),
+            bookmark("bookmark:invalid-child", "invalid-child", "Invalid child", ""),
           ],
         },
       ],
@@ -461,9 +365,7 @@ test("corrupt stored counts are rejected without repair", async () => {
     const loaded = await store.load(snapshot.id);
     assertStorageFailure(loaded, "stored_snapshot_invalid", "Corrupt counts");
 
-    const row = database
-      .prepare("SELECT folder_count FROM catalog_snapshots WHERE id = ?")
-      .get(snapshot.id);
+    const row = database.prepare("SELECT folder_count FROM catalog_snapshots WHERE id = ?").get(snapshot.id);
     assertEqual(row?.folder_count, snapshot.folderCount + 1, "Corrupt count was repaired");
   });
 });

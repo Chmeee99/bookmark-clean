@@ -237,3 +237,71 @@ VER-235,slice-36,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/heal
 VER-236,slice-36,full-test,npm test with local listener permission,pass,2026-07-13,package.json,One-hundred-fifty-eight tests passed independently
 VER-237,slice-36,file-size,wc -l Health public and typecheck matrix,pass,2026-07-13,modules/health/public.ts,Public contract is 219 lines and typecheck matrix is 358
 VER-238,slice-36,diff-ledger-check,git diff --check and CSV validation,pass,2026-07-13,docs/ops/,No whitespace errors and stable ledger schemas
+VER-239,slice-r1,baseline-full-test,npm test,pass,2026-07-13,package.json,One-hundred-fifty-eight tests passed in 592 milliseconds
+VER-240,slice-r1,baseline-typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed
+VER-241,slice-r1,review-artifacts,git diff --check and CSV validation,pass,2026-07-13,docs/reports/code-reduction-review.md,Manifest was 103 lines active plan was 168 lines and ledger schemas were stable
+VER-242,slice-r2,full-test,npm test,pass,2026-07-13,package.json,One-hundred-forty retained tests passed after spike deletion
+VER-243,slice-r2,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed after spike deletion
+VER-244,slice-r2,reference-diff-check,repository reference search and git diff --check,pass,2026-07-13,docs/decisions/0002-lm-studio-protocol.md,Only historical ledger and planning references remain and 1174 code test fixture lines were deleted
+VER-245,slice-r3,focused-test-sandbox,node --test Health contract and transport tests,fail,2026-07-13,tests/spikes/health-transport-fixtures.test.ts,Restricted sandbox denied loopback listener binding with EPERM
+VER-246,slice-r3,focused-test-approved,node --test Health contract and transport tests,pass,2026-07-13,tests/spikes/health-transport-fixtures.test.ts,Seven tests passed with approved loopback listener access
+VER-247,slice-r3,full-test,npm test,pass,2026-07-13,package.json,One-hundred-twenty-nine retained tests passed after implementation deletion
+VER-248,slice-r3,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed after implementation deletion
+VER-249,slice-r3,reference-diff-check,repository reference search and git diff --check,pass,2026-07-13,modules/health/public.ts,Four exclusive files totaling 1030 lines were removed and the public contract remained
+VER-250,slice-r4,focused-contract-test,node --test tests/contract/health.contract.test.ts,pass,2026-07-13,modules/health/public.ts,Retained type-only Health module exposed no runtime surface
+VER-251,slice-r4,full-test,npm test,pass,2026-07-13,package.json,One-hundred-twenty-three retained tests passed after fixture deletion
+VER-252,slice-r4,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed after fixture deletion
+VER-253,slice-r4,reference-diff-check,repository reference search and git diff --check,pass,2026-07-13,docs/decisions/0008-health-transport-fixtures.md,Two exclusive test files totaling 534 lines were removed and runtime facts were retained
+VER-254,slice-r5a,architecture-gate,Health consumer search and git diff --check,pass,2026-07-13,docs/architecture/module-map.md,Health was marked deferred target and only two contract-test consumers remained
+VER-255,slice-r5b,full-test,npm test,pass,2026-07-13,package.json,One-hundred-twenty-two retained tests passed after executable Health contract deletion
+VER-256,slice-r5b,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed after executable Health contract deletion
+VER-257,slice-r5b,reference-diff-check,repository reference search and git diff --check,pass,2026-07-13,docs/architecture/module-map.md,Three exclusive contract files totaling 597 lines were removed and target architecture remained
+VER-258,recovery-checkpoint,ledger-and-size-gate,CSV field validation and line-count inventory,pass,2026-07-13,docs/ops/,Ledgers were valid active plan was 147 lines and cumulative code test fixture deletion was 3335 lines
+VER-259,slice-r6,jobs-inventory-and-decision,caller graph line counts test grouping and route comparison,pass,2026-07-13,docs/reports/code-reduction-review.md,Retain-reduce selected for 3181 production and 7127 test helper lines with three bounded test-compression slices
+VER-260,slice-r6,artifact-and-ledger-gate,git diff --check CSV validation and line-count checks,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Report was 118 lines active plan was 153 lines and ledger field counts were stable
+VER-261,slice-r7a,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/jobs-types.typecheck.ts,Compressed type matrix retained closed unions branded IDs four port signatures and typed result rejection
+VER-262,slice-r7a,focused-test,node --test tests/contract/jobs.contract.test.ts,pass,2026-07-13,tests/contract/jobs.contract.test.ts,Jobs public contract remained runtime empty
+VER-263,slice-r7a,full-test,npm test,pass,2026-07-13,package.json,All one-hundred-twenty-two retained tests passed
+VER-264,slice-r7a,diff-and-size-gate,git diff --check and wc -l tests/contract/jobs-types.typecheck.ts,pass,2026-07-13,tests/contract/jobs-types.typecheck.ts,Type matrix fell from 456 to 104 lines with no whitespace errors
+VER-265,slice-r7b,focused-test,node --test tests/integration/job-worker-service.test.ts,pass,2026-07-13,tests/integration/job-worker-service.test.ts,Three retained worker boundary tests passed
+VER-266,slice-r7b,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed
+VER-267,slice-r7b,full-test,npm test,pass,2026-07-13,package.json,All one-hundred-twenty retained tests passed
+VER-268,slice-r7b,diff-and-size-gate,git diff --check and wc -l tests/integration/job-worker-service.test.ts,pass,2026-07-13,tests/integration/job-worker-service.test.ts,Worker suite fell from 217 to 106 lines with no whitespace errors
+VER-269,slice-r7c,focused-test,node --test tests/integration/job-queue-transitions.test.ts,pass,2026-07-13,tests/integration/job-queue-transitions.test.ts,Three retained queue orchestration tests passed
+VER-270,slice-r7c,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed
+VER-271,slice-r7c,full-test,npm test,pass,2026-07-13,package.json,All one-hundred-fifteen retained tests passed
+VER-272,slice-r7c,diff-and-size-gate,git diff --check and wc -l tests/integration/job-queue-transitions.test.ts,pass,2026-07-13,tests/integration/job-queue-transitions.test.ts,Queue transition suite fell from 281 to 107 lines with no whitespace errors
+VER-273,r7-refresh,artifact-and-ledger-gate,git diff --check CSV validation and line-count checks,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Active plan was 133 lines report was 118 lines and all ledger field counts were stable
+VER-274,slice-r7d,jobs-overlap-review,Transition assertion helper ownership and line-count comparison,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Four Jobs SQL and reopen candidates each retained a distinct transaction or cross-layer proof
+VER-275,slice-r8a,catalog-reduction-audit,Line-count test-name import fixture and ADR comparison,pass,2026-07-13,docs/reports/code-reduction-review.md,SQLite spike was deletable while six Catalog import surfaces required bounded retention or compression
+VER-276,slice-r8a,artifact-and-ledger-gate,git diff --check CSV validation queue and reference checks,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Plan was 157 lines report was 138 lines and ledger field counts were stable
+VER-277,slice-r8b,focused-test,node --test catalog SQLite Jobs recovery and import 10000 tests,pass,2026-07-13,tests/performance/import-10k.test.ts,Thirteen retained SQLite and vertical import tests passed
+VER-278,slice-r8b,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed
+VER-279,slice-r8b,full-test,npm test,pass,2026-07-13,package.json,All one-hundred-ten retained tests passed
+VER-280,slice-r8b,diff-and-reference-gate,git diff --check package reference search and deletion review,pass,2026-07-13,tests/spikes/sqlite-capabilities.test.ts,The 222-line spike was removed with no package reference and shared helpers unchanged
+VER-281,slice-r8b,artifact-and-ledger-gate,git diff --check package JSON and CSV validation,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Package JSON was valid active plan was 156 lines and ledger fields were stable
+VER-282,slice-r8c,typecheck,npm run typecheck,pass,2026-07-13,tests/contract/catalog-types.typecheck.ts,Compact matrix retained exact unions ports recursive nodes and brand rejection
+VER-283,slice-r8c,focused-test,node --test tests/contract/catalog-snapshot.contract.test.ts,pass,2026-07-13,tests/contract/catalog-snapshot.contract.test.ts,All twelve Catalog runtime contract tests passed
+VER-284,slice-r8c,full-test,npm test,pass,2026-07-13,package.json,All one-hundred-ten retained tests passed
+VER-285,slice-r8c,diff-and-size-gate,git diff --check and wc -l tests/contract/catalog-types.typecheck.ts,pass,2026-07-13,tests/contract/catalog-types.typecheck.ts,Type matrix fell from 189 to 101 lines with no whitespace errors
+VER-286,r8-refresh,queue-refresh,Completed R8A through R8C evidence and next-slice review,pass,2026-07-13,docs/plans/active/durable-processing-and-health.md,Queue was refreshed to four bounded Catalog slices with R8D executable
+VER-287,slice-r8d,focused-test,node --test tests/contract/catalog-snapshot.contract.test.ts,pass,2026-07-13,tests/contract/catalog-snapshot.contract.test.ts,Six consolidated validator boundary tests passed
+VER-288,slice-r8d,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed
+VER-289,slice-r8d,full-test,npm test,pass,2026-07-13,package.json,All one-hundred-four retained tests passed
+VER-290,slice-r8d,diff-and-size-gate,git diff --check and wc -l tests/contract/catalog-snapshot.contract.test.ts,pass,2026-07-13,tests/contract/catalog-snapshot.contract.test.ts,Validator suite fell from 250 to 153 lines with no whitespace errors
+VER-291,slice-r8e,focused-test,node --test tests/integration/chrome-html-import.test.ts,pass,2026-07-13,tests/integration/chrome-html-import.test.ts,Six consolidated parser boundary tests passed
+VER-292,slice-r8e,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed
+VER-293,slice-r8e,vertical-test,node --test tests/performance/import-10k.test.ts,pass,2026-07-13,tests/performance/import-10k.test.ts,Exactly ten-thousand nodes passed parse import persist close reopen and read-back
+VER-294,slice-r8e,full-test,npm test,pass,2026-07-13,package.json,All ninety-eight retained tests passed
+VER-295,slice-r8e,diff-and-size-gate,git diff --check and wc -l tests/integration/chrome-html-import.test.ts,pass,2026-07-13,tests/integration/chrome-html-import.test.ts,Parser suite fell from 375 to 211 lines with no whitespace errors
+VER-296,slice-r8f,focused-test,node --test tests/integration/catalog-service.test.ts,pass,2026-07-13,tests/integration/catalog-service.test.ts,Five consolidated Catalog service boundary tests passed
+VER-297,slice-r8f,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed
+VER-298,slice-r8f,vertical-test,node --test tests/performance/import-10k.test.ts,pass,2026-07-13,tests/performance/import-10k.test.ts,Exactly ten-thousand nodes passed the retained vertical proof
+VER-299,slice-r8f,full-test,npm test,pass,2026-07-13,package.json,All ninety-seven retained tests passed
+VER-300,slice-r8f,diff-and-size-gate,git diff --check and wc -l tests/integration/catalog-service.test.ts,pass,2026-07-13,tests/integration/catalog-service.test.ts,Service suite fell from 413 to 280 lines with no whitespace errors
+VER-301,slice-r8g,evidence-review,manual per-test dependency and assertion comparison,pass,2026-07-13,docs/reports/code-reduction-review.md,All eight SQLite tests map to distinct storage boundaries; only small round-trip detail overlaps the vertical proof
+VER-302,slice-r8h,focused-test,node --test tests/integration/catalog-sqlite.test.ts,pass,2026-07-13,tests/integration/catalog-sqlite.test.ts,All eight distinct SQLite storage boundary tests passed
+VER-303,slice-r8h,typecheck,npm run typecheck,pass,2026-07-13,tsconfig.json,Strict no-emit TypeScript check passed
+VER-304,slice-r8h,vertical-test,node --test tests/performance/import-10k.test.ts,pass,2026-07-13,tests/performance/import-10k.test.ts,Exactly ten-thousand nodes passed parse import persist close reopen and read-back
+VER-305,slice-r8h,full-test,npm test,pass,2026-07-13,package.json,All ninety-seven retained tests passed
+VER-306,slice-r8h,diff-and-size-gate,git diff --check and wc -l tests/integration/catalog-sqlite.test.ts,pass,2026-07-13,tests/integration/catalog-sqlite.test.ts,SQLite suite fell from 485 to 387 lines with no whitespace errors
