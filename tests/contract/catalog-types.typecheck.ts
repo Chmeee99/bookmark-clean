@@ -5,6 +5,7 @@ import type {
 } from "../../core/contracts/public.js";
 import type {
   BookmarkCatalog,
+  BookmarkLinkRecord,
   BookmarkSnapshot,
   BookmarkSnapshotInput,
   BookmarkSource,
@@ -67,10 +68,12 @@ type SourceNodes = Assert<Equal<SourceBookmarkNode,
 type CatalogContract = Assert<Equal<BookmarkCatalog, {
   importSnapshot(input: BookmarkSnapshotInput): Promise<Outcome<ImportSummary, CatalogFailure>>;
   getSnapshot(id: SnapshotId): Promise<Outcome<BookmarkSnapshot | null, CatalogStorageFailure>>;
+  getBookmark(id: BookmarkId): Promise<Outcome<BookmarkLinkRecord | null, CatalogStorageFailure>>;
 }>>;
 type StoreContract = Assert<Equal<CatalogSnapshotStore, {
   save(snapshot: BookmarkSnapshot): Promise<Outcome<void, CatalogStorageFailure>>;
   load(id: SnapshotId): Promise<Outcome<BookmarkSnapshot | null, CatalogStorageFailure>>;
+  loadBookmark(id: BookmarkId): Promise<Outcome<BookmarkLinkRecord | null, CatalogStorageFailure>>;
 }>>;
 type IdFactoryContract = Assert<Equal<CatalogIdFactory, {
   nextSnapshotId(): SnapshotId;

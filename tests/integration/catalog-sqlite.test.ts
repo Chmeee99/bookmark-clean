@@ -4,7 +4,7 @@ import type {
   CatalogSnapshotStore,
   CatalogStorageFailure,
 } from "../../modules/catalog/public.js";
-import type { IsoDateTime, Outcome, SnapshotId } from "../../core/contracts/public.js";
+import type { BookmarkId, IsoDateTime, Outcome, SnapshotId } from "../../core/contracts/public.js";
 
 interface NodeTestApi { test(name: string, callback: () => void | Promise<void>): void; }
 
@@ -241,6 +241,49 @@ test("save and load preserve an exact nested snapshot and fresh record container
   });
 });
 
+test("bookmark lookup returns exact links and null for folders or missing IDs", async () => {
+  await withDatabase(async (database) => {
+    migrate(database);
+    const store = createSqliteCatalogSnapshotStore(database);
+    const snapshot = nestedSnapshot("snapshot:bookmark-lookup");
+    assert((await store.save(snapshot)).ok, "Bookmark lookup fixture should save");
+
+    const loaded = await store.loadBookmark("bookmark:first" as BookmarkId);
+    assert(loaded.ok, "Stored bookmark should load");
+    assertDeepEqual(loaded.value, snapshot.roots[0]?.kind === "folder"
+      ? snapshot.roots[0].children[0]
+      : undefined, "Bookmark lookup changed fields");
+    assertDeepEqual(
+      await store.loadBookmark("bookmark:root-folder" as BookmarkId),
+      { ok: true, value: null },
+      "Folder lookup should be null",
+    );
+    assertDeepEqual(
+      await store.loadBookmark("bookmark:missing" as BookmarkId),
+      { ok: true, value: null },
+      "Missing bookmark lookup should be null",
+    );
+  });
+});
+
+test("bookmark lookup rejects a malformed stored bookmark without repair", async () => {
+  await withDatabase(async (database) => {
+    migrate(database);
+    const store = createSqliteCatalogSnapshotStore(database);
+    const snapshot = nestedSnapshot("snapshot:bookmark-corrupt");
+    assert((await store.save(snapshot)).ok, "Bookmark corruption fixture should save");
+    database
+      .prepare("UPDATE catalog_nodes SET date_modified = ? WHERE id = ?")
+      .run("not-a-date", "bookmark:second");
+
+    const loaded = await store.loadBookmark("bookmark:second" as BookmarkId);
+    assertStorageFailure(loaded, "stored_snapshot_invalid", "Malformed bookmark lookup");
+    const row = database.prepare("SELECT date_modified FROM catalog_nodes WHERE id = ?")
+      .get("bookmark:second");
+    assertEqual(row?.date_modified, "not-a-date", "Malformed bookmark was repaired");
+  });
+});
+
 test("missing snapshots return success with null and file reopen preserves data", async () => {
   await withTemporaryDatabase(async ({ databasePath }) => {
     const firstDatabase = new DatabaseSync(databasePath);
@@ -259,9 +302,13 @@ test("missing snapshots return success with null and file reopen preserves data"
 
     const reopened = new DatabaseSync(databasePath);
     try {
-      const loaded = await createSqliteCatalogSnapshotStore(reopened).load(snapshot.id);
+      const reopenedStore = createSqliteCatalogSnapshotStore(reopened);
+      const loaded = await reopenedStore.load(snapshot.id);
       assert(loaded.ok, "Reopened snapshot should load");
       assertDeepEqual(loaded.value, snapshot, "Reopened snapshot changed data");
+      const bookmark = await reopenedStore.loadBookmark("bookmark:first" as BookmarkId);
+      assert(bookmark.ok && bookmark.value !== null, "Reopened bookmark should load");
+      assertEqual(bookmark.value.url, "file:///notes.html", "Reopened bookmark URL changed");
     } finally {
       if (reopened.isOpen) reopened.close();
     }
@@ -370,7 +417,7 @@ test("corrupt stored counts are rejected without repair", async () => {
   });
 });
 
-test("closed databases return storage_unavailable for migration, save, and load", async () => {
+test("closed databases return storage_unavailable for migration, save, and loads", async () => {
   await withTemporaryDatabase(async ({ databasePath }) => {
     const database = new DatabaseSync(databasePath);
     database.close();
@@ -381,7 +428,9 @@ test("closed databases return storage_unavailable for migration, save, and load"
     const store = createSqliteCatalogSnapshotStore(database);
     const save = await store.save(emptySnapshot("snapshot:closed"));
     const load = await store.load("snapshot:closed" as SnapshotId);
+    const loadBookmark = await store.loadBookmark("bookmark:closed" as BookmarkId);
     assertStorageFailure(save, "storage_unavailable", "Closed database save");
     assertStorageFailure(load, "storage_unavailable", "Closed database load");
+    assertStorageFailure(loadBookmark, "storage_unavailable", "Closed database bookmark load");
   });
 });

@@ -157,6 +157,9 @@ function createBookmarkCatalog({
     getSnapshot(id) {
       return store.load(id);
     },
+    getBookmark(id) {
+      return store.loadBookmark(id);
+    },
   };
 }
 

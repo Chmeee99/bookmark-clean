@@ -1,7 +1,7 @@
 # Bookmark Clean module map
 
 Status: current boundaries plus deferred targets
-Date: 2026-07-14
+Date: 2026-07-15
 
 ## System shape
 
@@ -724,7 +724,7 @@ Capability brief for durable processing:
 
 ## Health module
 
-Current implementation status: deferred target. The prior executable contract, classifier, and transport fixtures were removed. A future Health vertical slice must revalidate this target contract against a real caller before restoring executable types.
+Current implementation status: the deterministic checker, Jobs handler, immutable observation, SQLite repository, safe Node target resolver, and one-request Node transport are executable. Public composition, runtime registration, history listing, and staleness remain target contracts.
 
 Responsibility: produce URL health observations and explainable staleness assessments.
 
@@ -806,23 +806,42 @@ interface HealthObservation {
   readonly bodyFingerprint?: ContentHash;
 }
 
-type HealthFailureCode =
+interface CommittedHealthObservation {
+  readonly id: JobResultId;
+}
+
+type HealthCheckFailureCode =
   | "invalid_request"
   | "input_conflict"
   | "invalid_configuration"
-  | "clock_unavailable"
   | "id_unavailable"
+  | "clock_unavailable"
   | "transport_unavailable"
   | "storage_unavailable";
 
-interface HealthFailure {
-  readonly code: HealthFailureCode;
-  readonly disposition: "retry" | "terminal";
-  readonly diagnostic?: string;
-}
+type HealthCheckFailure =
+  | {
+      readonly code:
+        | "invalid_request"
+        | "input_conflict"
+        | "invalid_configuration"
+        | "id_unavailable";
+      readonly disposition: "terminal";
+      readonly diagnostic?: string;
+    }
+  | {
+      readonly code:
+        | "clock_unavailable"
+        | "transport_unavailable"
+        | "storage_unavailable";
+      readonly disposition: "retry";
+      readonly diagnostic?: string;
+    };
 
 interface HealthChecker {
-  check(request: HealthCheckRequest): Promise<Outcome<HealthObservation, HealthFailure>>;
+  check(
+    request: HealthCheckRequest,
+  ): Promise<Outcome<CommittedHealthObservation, HealthCheckFailure>>;
 }
 
 interface HealthCheckJobHandlerDependencies {
@@ -850,9 +869,8 @@ interface HealthIdFactory {
 
 interface HealthCheckConfig {
   readonly timeoutMs: number;
-  readonly maxRedirects: number;
+  readonly maxRedirects: 5;
   readonly maxBodyBytes: number;
-  readonly maxAttempts: number;
 }
 
 interface HealthTransportRequest {
@@ -882,25 +900,22 @@ interface HealthTransport {
   ): Promise<Outcome<HealthTransportResponse, HealthTransportFailure>>;
 }
 
-type HealthTransportFact =
-  | { readonly kind: "response"; readonly value: HealthTransportResponse }
-  | { readonly kind: "failure"; readonly value: HealthTransportFailure };
-
-type HealthRetryDecision =
-  | { readonly retry: false }
-  | { readonly retry: true; readonly delayMs: number };
-
-interface HealthRetryPolicy {
-  decide(attempt: number, fact: HealthTransportFact): HealthRetryDecision;
-}
-
-interface HealthDelay {
-  wait(delayMs: number): Promise<void>;
-}
-
 interface HealthBodyFingerprinter {
   fingerprint(body: Uint8Array): ContentHash;
 }
+
+interface HealthCheckerDependencies {
+  readonly config: HealthCheckConfig;
+  readonly clock: HealthClock;
+  readonly idFactory: HealthIdFactory;
+  readonly transport: HealthTransport;
+  readonly fingerprinter: HealthBodyFingerprinter;
+  readonly repository: HealthObservationRepository;
+}
+
+declare function createHealthChecker(
+  dependencies: HealthCheckerDependencies,
+): HealthChecker;
 
 type HealthRepositoryFailureCode =
   | "observation_conflict"
@@ -919,9 +934,6 @@ interface HealthObservationRepository {
   saveIfAbsent(
     observation: HealthObservation,
   ): Promise<Outcome<HealthObservation, HealthRepositoryFailure>>;
-  listForBookmark(
-    bookmarkId: BookmarkId,
-  ): Promise<Outcome<readonly HealthObservation[], HealthRepositoryFailure>>;
 }
 
 type StalenessDisposition = "no_warning" | "retry" | "review";
@@ -949,14 +961,35 @@ interface StalenessAssessment {
   readonly observationIds: readonly JobResultId[];
   readonly policyVersion: string;
 }
+
+interface JobQueueDependencies {
+  readonly clock: JobClock;
+  readonly retrySchedule: JobRetrySchedule;
+  readonly idFactory: JobIdFactory;
+  readonly store: JobQueueStore;
+  readonly config: JobQueueConfig;
+}
+
+declare function createJobQueue(
+  dependencies: JobQueueDependencies,
+): JobQueue;
+
+declare function createJobWorker(
+  queue: JobQueue,
+  handlers: readonly JobHandler[],
+): Outcome<JobWorker, JobWorkerConfigurationFailure>;
 ```
+
+`JobQueueDependencies`, `createJobQueue`, and `createJobWorker` are public
+composition seams. Their existing Jobs implementations are promoted without
+changing queue or worker behavior.
 
 Observation and idempotency rules:
 
-- `check` requires non-empty bookmark ID, input version, and URL. Every config integer is safe and bounded: timeout/body/attempts are positive and redirects are non-negative. Every clock value, ID, transport fact, repository result, and retry decision is validated at its receiving boundary.
+- `check` requires non-empty bookmark ID, input version, and URL. Timeout and body limits are positive safe integers and `maxRedirects` is exactly five. Every clock value, ID, transport fact, and repository result is validated at its receiving boundary.
 - `(bookmarkId, inputVersion)` is the immutable idempotency key for one requested check. `check` loads it before allocating an ID or calling transport. An existing observation with the exact requested URL returns unchanged. Reusing the key for a different URL returns terminal `input_conflict`. A later scheduled check must use a new input version.
 - `saveIfAbsent` atomically inserts by that key. A concurrent identical observation returns the stored row. A different observation for the same key returns `observation_conflict`; local code never merges or repairs it.
-- Expected network outcomes, including timeout, DNS, TLS, unsupported URL, malformed response, and connection failure, produce durable observations and successful `check` outcomes. `invalid_request`, `input_conflict`, `invalid_configuration`, and `id_unavailable` are terminal service failures. `clock_unavailable`, `transport_unavailable`, and `storage_unavailable` are retry failures. Repository `observation_conflict` maps to terminal `input_conflict`; repository unavailability maps to retry `storage_unavailable`. Diagnostics remain opaque evidence.
+- Expected network outcomes, including timeout, DNS, TLS, unsupported URL, malformed response, and connection failure, produce durable observations and successful `check` outcomes. Invalid requests, input conflicts, invalid configuration, and unavailable IDs are terminal. Unavailable clock, transport, and storage dependencies are retryable. Repository `observation_conflict` maps to terminal `input_conflict`; repository unavailability maps to retry `storage_unavailable`. Diagnostics remain opaque evidence.
 - The observation ID is a `JobResultId`, so a successful Health job can return it directly as `{ kind: "health_observation", id }` after the repository commit.
 - The Health job handler accepts only `health_check` leases. It resolves the bookmark through `BookmarkCatalog.getBookmark`, passes the exact bookmark ID, input version, and stored URL to `HealthChecker.check`, and returns the committed observation ID. Missing bookmarks and invalid targets are terminal typed failures. Catalog unavailability and retry Health failures remain retry failures. The handler does not parse diagnostics or infer URL meaning.
 
@@ -968,15 +1001,15 @@ Transport and request-safety rules:
 - Transport adapters author `HealthTransportFailureCode` from structured runtime facts. Unknown Node `TypeError` cases remain `unknown_transport` until typed cause fixtures prove a narrower mapping. Exception messages, socket prose, and traces never select a code.
 - Headers are lower-case, deduplicated, and restricted to `HealthSelectedHeaderName`. Header/body values are evidence only. Bodies are capped before allocation beyond `maxBodyBytes`; the observation stores only a fingerprint.
 
-Redirect, retry, and classification rules:
+Redirect and classification rules:
 
 - Redirect statuses are 301, 302, 303, 307, and 308. A hop requires one non-empty `Location` that resolves against the current URL and passes transport safety. Missing/invalid locations produce `uncertain` with `invalid_redirect`. Exceeding `maxRedirects` produces `uncertain` with `redirect_limit`.
-- `HealthRetryPolicy` decides from typed response/failure facts and attempt number only. `maxAttempts` includes the first request. Delay is non-negative and finite; `HealthDelay` is injected. The service records completed extra requests as `retryCount`. It does not parse `Retry-After` or diagnostics unless a later typed policy contract declares that field.
+- The first checker performs no retries. `retryCount` remains zero; the request budget covers one initial request and at most five manual redirect requests.
 - A final 2xx response is `healthy` without redirects. A final 2xx after only 301/308 hops is `redirect_permanent`. Any 302/303/307 hop makes the result `redirect_temporary`.
 - Final 401, 403, 404, 410, 429, and 5xx responses map to `authentication_required`, `forbidden`, `not_found`, `gone`, `rate_limited`, and `server_error`. Other HTTP statuses are `uncertain`.
 - Transport failure codes map directly where a matching `HealthStatus` exists. Connection, malformed, and unknown transport failures map to `uncertain` while preserving `errorCode`. Unsupported URL maps to `unsupported_url` without a request.
 - `soft_404_suspected` and `parked_domain_suspected` require a separate schema-valid typed page-classification result with evidence references. The deterministic network checker never emits either status from body prose or an HTTP status alone.
-- `checkedAt` is the validated completion clock value. `durationMs` is the safe sum of transport durations and delays. Redirects, attempts, headers, final status, error code, and body fingerprint are reconstructed from typed fields only.
+- `checkedAt` is the validated completion clock value. `durationMs` is the safe sum of transport durations. Redirects, requests, headers, final status, error code, and body fingerprint are reconstructed from typed fields only.
 
 Staleness rules:
 
@@ -986,19 +1019,47 @@ Staleness rules:
 - `review` requires repeated `not_found`/`gone` observations or repeated typed soft-404/parked evidence under a versioned threshold policy. The exact count and minimum elapsed interval are fixed in the dedicated staleness implementation slice before code; changing them requires policy-version and test changes.
 - Confidence is finite in `[0, 1]`. Reason codes are closed, observations remain unchanged, and no assessment authorizes deletion. Models may supply typed page-suspicion evidence; they cannot set disposition, confidence, or reasons.
 
-Hides: request headers, timeout implementation, safe address resolution/pinning, redirect walker, DNS/TLS structured-code mapping, retry schedule/jitter, per-domain limiter, body hashing, repository schema, and staleness thresholds.
+Hides: request headers, timeout implementation, safe address resolution/pinning, redirect walker, DNS/TLS structured-code mapping, per-domain limiter, body hashing, repository schema, and staleness thresholds.
 
-Allowed dependencies: `HealthTransport`, `HealthClock`, `HealthIdFactory`, `HealthRetryPolicy`, `HealthDelay`, `HealthBodyFingerprinter`, `HealthObservationRepository`, configuration, and optional schema-valid typed page-classification evidence.
+Allowed dependencies: `HealthTransport`, `HealthClock`, `HealthIdFactory`, `HealthBodyFingerprinter`, `HealthObservationRepository`, configuration, and optional schema-valid typed page-classification evidence.
 
 Boundary notes: health observations are facts from one bounded check. Staleness is a versioned policy result over history. Network/page evidence may be model-assisted only through a declared typed producer contract. No model, transport diagnostic, or single transient failure can issue a stale or delete decision.
 
 Capability brief for first Health implementation:
 
 - Placement: extend the Health module. Transport adapters implement execution and request safety; SQLite implements the Health-owned repository port; the Jobs handler calls `check` and returns the committed observation ID.
-- Contract consumers: `HealthChecker` consumes transport/clock/ID/retry/delay/fingerprint/repository ports. `StalenessPolicy` consumes immutable observation history. A composition root may expose both as `HealthService`. The worker consumes `HealthChecker` through one Health `JobHandler`; UI/review consumers use stored observations and `StalenessPolicy`.
+- Contract consumers: `HealthChecker` consumes transport, clock, ID, fingerprint, and repository ports. `StalenessPolicy` consumes immutable observation history. A composition root may expose both as `HealthService`. The worker consumes `HealthChecker` through one Health `JobHandler`; UI/review consumers use stored observations and `StalenessPolicy`.
 - Migration order: executable Health types, deterministic classifier/service against fakes, Node transport cause fixtures plus safe-request design, SQLite repository, Health job handler, then staleness policy thresholds. Public contract changes remain isolated slices.
 - The first handler composes `HealthChecker` with Catalog lookup and uses `health_check_v1`: one queue attempt, no in-check retry, and at most five redirects. The preview budget and runtime configuration must match before the handler is registered.
 - Out of scope for the first implementation: concurrency limits, rendered browsing, page-classifier production, live-internet probes, deletion, and Chrome writes.
+
+## Node runtime adapter
+
+Responsibility: implement Node-specific runtime ports used by local composition.
+
+Public contract:
+
+```ts
+interface NodeRuntimeClock extends HealthClock, JobClock {}
+
+interface NodeRuntimePorts {
+  readonly clock: NodeRuntimeClock;
+  readonly healthIdFactory: HealthIdFactory;
+  readonly jobIdFactory: JobIdFactory;
+  readonly bodyFingerprinter: HealthBodyFingerprinter;
+  readonly healthTransport: HealthTransport;
+}
+
+declare function createNodeRuntimePorts(): NodeRuntimePorts;
+```
+
+The returned transport always uses the private safe resolver by default. Test-only resolver injection stays on the internal transport factory and never appears in `adapters/node/public.ts`. The clock returns canonical UTC, IDs come from Node cryptographic randomness, and fingerprints use `sha256:` plus the lowercase SHA-256 hex digest of the supplied bytes.
+
+Hides: DNS lookup records, address classification, pinned request options, TLS options, socket lifecycle, Node error objects, hash objects, and random UUID calls.
+
+Allowed dependencies: Node DNS, HTTP, HTTPS, net, TLS, crypto, and clock APIs plus public Health and Jobs port types.
+
+Boundary notes: this adapter supplies mechanisms only. It does not choose Health status, retry disposition, job attempts, redirect limits, worker repetition, or handler registration. Controlled certificate evidence proves that the production transport preserves Host and SNI while connecting to a pinned address; it does not claim public-network reachability.
 
 ## Extraction module
 
@@ -1212,9 +1273,24 @@ interface CatalogDatabaseSession {
 declare function openCatalogDatabase(
   databasePath: string,
 ): Outcome<CatalogDatabaseSession, CatalogDatabaseFailure>;
+
+interface BookmarkCleanDatabaseSession {
+  readonly catalogStore: CatalogSnapshotStore;
+  readonly jobQueueStore: JobQueueStore;
+  readonly healthRepository: HealthObservationRepository;
+  close(): void;
+}
+
+interface BookmarkCleanDatabaseFailure {
+  readonly code: "storage_unavailable";
+}
+
+declare function openBookmarkCleanDatabase(
+  databasePath: string,
+): Outcome<BookmarkCleanDatabaseSession, BookmarkCleanDatabaseFailure>;
 ```
 
-`openCatalogDatabase` opens one Node SQLite connection, completes Catalog migration before returning, and closes the connection before returning a failure. The session owns exactly one open connection; `close` is idempotent. A later multi-module service may add a broader database runtime only after it has a concrete caller.
+`openCatalogDatabase` remains the backward-compatible Catalog-only opener. `openBookmarkCleanDatabase` opens one connection, completes Catalog, Jobs, and Health migrations before returning, and supplies each module-owned persistence port from that connection. Both sessions close before returning a failure and have idempotent `close` methods.
 
 Hides: Node SQLite types, connection lifecycle, pragmas, migrations table, prepared statements, FTS5 maintenance, BLOB encoding, and backup implementation.
 
@@ -1319,9 +1395,9 @@ Preview failure stderr is one JSON line with `ok: false` and one of `invalid_arg
 
 Hides: argument parsing, filesystem calls, wall-clock access, JSON serialization, stream writes, and process exit-code assignment.
 
-Allowed dependencies: Node filesystem/process APIs and the public Orchestrator, Catalog runtime-factory, Chrome HTML runtime, and SQLite session contracts.
+Allowed dependencies: Node filesystem/process APIs and public Orchestrator, Catalog, Processing, Jobs, Health, Node-runtime, Chrome HTML, and SQLite session contracts.
 
-Boundary notes: the CLI is the composition root. It may select concrete implementations but may not parse HTML, validate Catalog data, execute SQL, calculate processing budgets, or interpret diagnostics. Import prints no bookmark contents. Inspection and preview may print folder IDs and titles plus aggregate counts, but never bookmark titles, URLs, source IDs, dates other than snapshot capture time, or diagnostics. It never mutates Chrome.
+Boundary notes: the CLI is the composition root. Its target Health worker session opens the multi-module database session, builds Catalog and Jobs services from public factories, builds the checker from `NodeRuntimePorts`, registers exactly one Health handler, and exposes only the resulting `JobWorker` plus `close`. The safe resolver, transport options, repositories, stores, checker, and handler array stay inside composition. The CLI may select concrete implementations but may not parse HTML, validate Catalog data, execute SQL, calculate processing budgets, or interpret diagnostics. Import prints no bookmark contents. Inspection and preview may print folder IDs and titles plus aggregate counts, but never bookmark titles, URLs, source IDs, dates other than snapshot capture time, or diagnostics. It never mutates Chrome.
 
 ## Web UI
 
@@ -1404,8 +1480,18 @@ To add a new provider, source, extractor, or review policy:
 - Placement: Catalog owns the bookmark lookup; Health owns checking and the `JobHandler` adapter; Jobs keeps lease and retry state; a later composition root registers the handler.
 - Contract changes: add `BookmarkCatalog.getBookmark` plus the matching store read in an isolated Catalog contract slice. Reintroduce the smallest caller-driven Health executable contract in a separate slice before implementing its checker, repository, or handler.
 - Consumers: the first Health handler consumes Catalog lookup and `HealthChecker`; the existing Jobs worker consumes the completed handler without changing its public contract.
-- Migration order: Catalog lookup types, Catalog service forwarding, SQLite lookup, minimal Health executable types, bounded checker and repository, then the Health handler and runtime registration. `health_check_v1` runtime limits must match the preview before registration.
+- Migration order: Catalog lookup, minimal Health executable types, and the unregistered handler factory may land against fakes. The bounded checker and repository must land before runtime registration. `health_check_v1` runtime limits must match the preview before registration.
 - Explicitly out of scope: extraction, enrichment, model calls, staleness policy, rendered browsing, deletion, Chrome writes, and smuggling URLs into Jobs targets or `inputVersion`.
+
+## Capability brief: first local Health worker composition
+
+- Behavior: open one local database, assemble the existing bounded Health checker and handler from public contracts, register that handler with the one-step Jobs worker, and close the shared database session after the caller finishes.
+- Placement: the Local CLI remains the composition root. SQLite supplies Catalog, Jobs, and Health persistence ports through one opaque session. The Node runtime adapter supplies clock, IDs, body fingerprinting, and the default safe transport. Jobs and Health retain all domain behavior.
+- Contract additions: the multi-module SQLite session, `NodeRuntimePorts`, public Jobs queue and worker factories, and the Local CLI `HealthWorkerSession` composition contract. The Health public contract does not change. The handler array is the registry; no container or registry abstraction is added.
+- Consumers: the first consumer is the Local CLI Health worker session. Existing import, inspect, and preview commands keep `openCatalogDatabase` during this migration.
+- Migration order: multi-module SQLite session; Node runtime ports; successful controlled HTTPS evidence; Jobs public factory promotion; Local CLI session composition and Health handler registration. Each public contract change remains in its owning slice.
+- Local composition rule: the first registry contains only `health_check`. It uses `health_check_v1` with one job attempt, one initial request, at most five redirects, and zero model calls. A later multi-attempt profile must add an explicit retry-policy decision before registration.
+- Explicitly out of scope: running a job from a command, polling, selected-folder enqueue, public internet proof, runtime configuration flags, rendered browsing, model calls, deletion, Chrome writes, and migrating existing CLI commands to the broader session.
 
 ## Contract changelog
 
@@ -1423,3 +1509,14 @@ To add a new provider, source, extractor, or review policy:
 - 2026-07-14: added the read-only inspect CLI contract; the local CLI and its subprocess test are the only new consumers and existing public module contracts do not change.
 - 2026-07-14: added the Processing preview contract and fixed `health_check_v1` budget; its first consumers are the Processing service and Local CLI.
 - 2026-07-14: approved additive Catalog bookmark lookup and the caller-driven Health handler boundary; their executable contracts migrate in isolated slices before handler registration.
+- 2026-07-14: implemented indexed Catalog bookmark lookup, the minimal committed-observation Health contract, and an unregistered Health handler factory; checker and repository implementation remain prerequisites for runtime registration.
+- 2026-07-15: approved the executable immutable Health observation and two-method repository contract; SQLite readers and writers consume it next while history listing remains deferred with staleness.
+- 2026-07-15: replaced the deferred Health retry and delay sketch with the fixed `health_check_v1` checker ports; the classifier and deterministic checker consume the contract next.
+- 2026-07-15: activated the deterministic Health checker factory with validated manual redirects and durable SQLite read-back; Node transport remains uncomposed.
+- 2026-07-15: implemented the safe full-answer target resolver and pinned one-request Node transport; public composition and handler registration remain separate future contract work.
+- 2026-07-15: placed first worker composition in the Local CLI, approved opaque multi-module SQLite and Node runtime ports, and kept the handler array private; consumers migrate SQLite, Node, and Jobs public seams before registration.
+- 2026-07-15: implemented the additive multi-module SQLite session with real Catalog, Jobs, and Health ports; existing Catalog-only consumers remain on their original opener.
+- 2026-07-15: implemented the zero-argument Node runtime port bundle with cryptographic IDs, exact SHA-256 fingerprints, and the private default-safe Health transport.
+- 2026-07-15: proved certificate-validated HTTPS against a controlled `health.test` fixture through the unchanged production transport; child-only trust did not widen the Node public contract.
+- 2026-07-15: promoted the existing queue and one-step worker factories through the exact Jobs public contract without changing service behavior.
+- 2026-07-15: composed the public SQLite, Node, Catalog, Jobs, and Health seams into a Local CLI-owned session with one private Health handler and caller-supplied operating configuration.

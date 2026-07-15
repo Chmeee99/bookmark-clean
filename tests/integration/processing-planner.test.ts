@@ -109,6 +109,9 @@ function catalogReturning(
       onRead();
       return outcome;
     },
+    async getBookmark() {
+      throw new Error("Bookmark lookup must not run during preview");
+    },
   };
 }
 

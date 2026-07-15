@@ -61,6 +61,9 @@ function makeCatalog(
     async getSnapshot() {
       throw new Error("getSnapshot must not be called");
     },
+    async getBookmark() {
+      throw new Error("getBookmark must not be called");
+    },
   };
 }
 

@@ -93,7 +93,7 @@ function assertUnavailable(
 test("public session migrates stores closes and reopens without exposing SQLite", async () => {
   assertDeepEqual(
     Object.keys(sqlitePublic),
-    ["openCatalogDatabase"],
+    ["openCatalogDatabase", "openBookmarkCleanDatabase"],
     "SQLite public runtime exports changed",
   );
 

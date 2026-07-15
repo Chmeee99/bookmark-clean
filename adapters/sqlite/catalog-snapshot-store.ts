@@ -1,10 +1,11 @@
 import type {
   BookmarkRecord,
+  BookmarkLinkRecord,
   BookmarkSnapshot,
   CatalogSnapshotStore,
   CatalogStorageFailure,
 } from "../../modules/catalog/public.js";
-import type { IsoDateTime, Outcome, SnapshotId } from "../../core/contracts/public.js";
+import type { BookmarkId, IsoDateTime, Outcome, SnapshotId } from "../../core/contracts/public.js";
 
 interface SqliteRow {
   readonly [key: string]: unknown;
@@ -22,6 +23,10 @@ interface SqliteDatabase {
 }
 
 interface ReconstructionApi {
+  reconstructCatalogBookmark(
+    row: SqliteRow,
+    bookmarkId: BookmarkId,
+  ): Outcome<BookmarkLinkRecord, CatalogStorageFailure>;
   reconstructCatalogSnapshot(
     snapshotRow: SqliteRow,
     nodeRows: readonly SqliteRow[],
@@ -36,7 +41,7 @@ declare const module: {
   };
 };
 
-const { reconstructCatalogSnapshot } = require(
+const { reconstructCatalogBookmark, reconstructCatalogSnapshot } = require(
   "./catalog-snapshot-reconstruction.ts",
 ) as ReconstructionApi;
 
@@ -47,6 +52,10 @@ const NODE_SELECT =
   "SELECT id, snapshot_id, source_id, parent_id, sibling_index, kind, title, " +
   "url, date_added, date_modified, date_last_used " +
   "FROM catalog_nodes WHERE snapshot_id = ? ORDER BY id";
+const BOOKMARK_SELECT =
+  "SELECT id, snapshot_id, source_id, parent_id, sibling_index, kind, title, " +
+  "url, date_added, date_modified, date_last_used " +
+  "FROM catalog_nodes WHERE id = ? AND kind = 'bookmark'";
 const SNAPSHOT_INSERT =
   "INSERT INTO catalog_snapshots(" +
   "id, source, captured_at, root_count, folder_count, bookmark_count" +
@@ -167,6 +176,17 @@ function createSqliteCatalogSnapshotStore(
         }
         const nodeRows = database.prepare(NODE_SELECT).all(id);
         return reconstructCatalogSnapshot(snapshotRow, nodeRows, id);
+      } catch {
+        return storageUnavailable();
+      }
+    },
+    async loadBookmark(id) {
+      try {
+        const row = database.prepare(BOOKMARK_SELECT).get(id);
+        if (row === undefined) {
+          return { ok: true, value: null };
+        }
+        return reconstructCatalogBookmark(row, id);
       } catch {
         return storageUnavailable();
       }

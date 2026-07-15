@@ -144,6 +144,14 @@ export interface JobQueueConfig {
   readonly leaseDurationMs: number;
 }
 
+export interface JobQueueDependencies {
+  readonly clock: JobClock;
+  readonly retrySchedule: JobRetrySchedule;
+  readonly idFactory: JobIdFactory;
+  readonly store: JobQueueStore;
+  readonly config: JobQueueConfig;
+}
+
 export interface StoredEnqueueCommand {
   readonly request: EnqueueBatchRequest;
   readonly requestFingerprint: string;
@@ -243,3 +251,42 @@ export interface JobWorker {
     worker: WorkerIdentity,
   ): Promise<Outcome<JobWorkerStep, JobWorkerFailure>>;
 }
+
+export declare function createJobQueue(
+  dependencies: JobQueueDependencies,
+): JobQueue;
+
+export declare function createJobWorker(
+  queue: JobQueue,
+  handlers: readonly JobHandler[],
+): Outcome<JobWorker, JobWorkerConfigurationFailure>;
+
+interface JobQueueRuntime {
+  createJobQueue: typeof createJobQueue;
+}
+
+interface JobWorkerRuntime {
+  createJobWorker: typeof createJobWorker;
+}
+
+declare const require: (
+  specifier: "./job-queue-service.ts" | "./job-worker-service.ts",
+) => unknown;
+declare const module: {
+  exports: {
+    createJobQueue: typeof createJobQueue;
+    createJobWorker: typeof createJobWorker;
+  };
+};
+
+const { createJobQueue: createJobQueueRuntime } = require(
+  "./job-queue-service.ts",
+) as JobQueueRuntime;
+const { createJobWorker: createJobWorkerRuntime } = require(
+  "./job-worker-service.ts",
+) as JobWorkerRuntime;
+
+module.exports = {
+  createJobQueue: createJobQueueRuntime,
+  createJobWorker: createJobWorkerRuntime,
+};

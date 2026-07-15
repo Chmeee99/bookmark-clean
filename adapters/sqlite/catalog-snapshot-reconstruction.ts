@@ -46,7 +46,7 @@ interface MutableRecordBase {
   dateAdded?: IsoDateTime;
   dateModified?: IsoDateTime;
 }
-function storedSnapshotInvalid(): Outcome<BookmarkSnapshot, CatalogStorageFailure> {
+function storedSnapshotInvalid<T>(): Outcome<T, CatalogStorageFailure> {
   return { ok: false, error: { code: "stored_snapshot_invalid" } };
 }
 function isCanonicalUtc(value: unknown): value is IsoDateTime {
@@ -169,6 +169,16 @@ function baseRecord(node: StoredNode): MutableRecordBase {
   }
   return record;
 }
+function bookmarkRecord(node: StoredNode): BookmarkLinkRecord {
+  return {
+    ...baseRecord(node),
+    kind: "bookmark",
+    url: node.url as string,
+    ...(node.dateLastUsed === null
+      ? {}
+      : { dateLastUsed: node.dateLastUsed }),
+  };
+}
 function assembleRecord(
   node: StoredNode,
   childrenByParent: Map<string | null, StoredNode[]>,
@@ -183,15 +193,7 @@ function assembleRecord(
 
   try {
     if (node.kind === "bookmark") {
-      const record: BookmarkLinkRecord = {
-        ...baseRecord(node),
-        kind: "bookmark",
-        url: node.url as string,
-        ...(node.dateLastUsed === null
-          ? {}
-          : { dateLastUsed: node.dateLastUsed }),
-      };
-      return record;
+      return bookmarkRecord(node);
     }
 
     const children: BookmarkRecord[] = [];
@@ -211,6 +213,19 @@ function assembleRecord(
   } finally {
     active.delete(node.id);
   }
+}
+function reconstructCatalogBookmark(
+  row: CatalogSqliteRow,
+  bookmarkId: BookmarkId,
+): Outcome<BookmarkLinkRecord, CatalogStorageFailure> {
+  if (!isNonEmptyString(row.snapshot_id)) {
+    return storedSnapshotInvalid();
+  }
+  const node = parseNodeRow(row, row.snapshot_id as SnapshotId);
+  if (node === undefined || node.id !== bookmarkId || node.kind !== "bookmark") {
+    return storedSnapshotInvalid();
+  }
+  return { ok: true, value: bookmarkRecord(node) };
 }
 function reconstructCatalogSnapshot(
   snapshotRow: CatalogSqliteRow,
@@ -294,7 +309,8 @@ function reconstructCatalogSnapshot(
 }
 declare const module: {
   exports: {
+    reconstructCatalogBookmark: typeof reconstructCatalogBookmark;
     reconstructCatalogSnapshot: typeof reconstructCatalogSnapshot;
   };
 };
-module.exports = { reconstructCatalogSnapshot };
+module.exports = { reconstructCatalogBookmark, reconstructCatalogSnapshot };

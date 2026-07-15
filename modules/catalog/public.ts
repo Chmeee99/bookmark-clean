@@ -12,6 +12,9 @@ export interface BookmarkCatalog {
   getSnapshot(
     id: SnapshotId,
   ): Promise<Outcome<BookmarkSnapshot | null, CatalogStorageFailure>>;
+  getBookmark(
+    id: BookmarkId,
+  ): Promise<Outcome<BookmarkLinkRecord | null, CatalogStorageFailure>>;
 }
 
 export type BookmarkSource = "chrome_api" | "chrome_html";
@@ -125,6 +128,9 @@ export interface CatalogSnapshotStore {
   load(
     id: SnapshotId,
   ): Promise<Outcome<BookmarkSnapshot | null, CatalogStorageFailure>>;
+  loadBookmark(
+    id: BookmarkId,
+  ): Promise<Outcome<BookmarkLinkRecord | null, CatalogStorageFailure>>;
 }
 
 export interface CatalogIdFactory {

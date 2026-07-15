@@ -1,5 +1,6 @@
 import type {
   BookmarkCatalog,
+  BookmarkLinkRecord,
   BookmarkSnapshot,
   BookmarkSnapshotInput,
   CatalogIdFactory,
@@ -22,6 +23,7 @@ interface FakePorts {
   readonly events: string[];
   readonly saved: BookmarkSnapshot[];
   readonly loadCalls: SnapshotId[];
+  readonly bookmarkLoadCalls: BookmarkId[];
 }
 
 declare const require: (specifier: string) => unknown;
@@ -62,10 +64,15 @@ function makePorts(
     ok: true,
     value: null,
   },
+  bookmarkLoadResult: Outcome<BookmarkLinkRecord | null, CatalogStorageFailure> = {
+    ok: true,
+    value: null,
+  },
 ): FakePorts {
   const events: string[] = [];
   const saved: BookmarkSnapshot[] = [];
   const loadCalls: SnapshotId[] = [];
+  const bookmarkLoadCalls: BookmarkId[] = [];
   let snapshotSequence = 0;
   let bookmarkSequence = 0;
   const idFactory: CatalogIdFactory = {
@@ -91,12 +98,18 @@ function makePorts(
       loadCalls.push(id);
       return loadResult;
     },
+    loadBookmark: async (id) => {
+      events.push("loadBookmark");
+      bookmarkLoadCalls.push(id);
+      return bookmarkLoadResult;
+    },
   };
   return {
     catalog: createBookmarkCatalog({ idFactory, store }),
     events,
     saved,
     loadCalls,
+    bookmarkLoadCalls,
   };
 }
 
@@ -276,5 +289,35 @@ test("getSnapshot forwards loaded missing and failure outcomes", async () => {
     assert(result === outcome, "Load outcome reference changed");
     assertDeepEqual(ports.loadCalls, ["snapshot-requested"], "Load ID changed");
     assertDeepEqual(ports.events, ["load"], "Load touched another dependency");
+  }
+});
+
+test("getBookmark forwards loaded missing and failure outcomes", async () => {
+  const bookmark: BookmarkLinkRecord = {
+    id: "bookmark-existing" as BookmarkId,
+    sourceId: "source-existing",
+    kind: "bookmark",
+    title: "Existing",
+    url: "https://example.com/existing",
+  };
+  const outcomes: Outcome<BookmarkLinkRecord | null, CatalogStorageFailure>[] = [
+    { ok: true, value: bookmark },
+    { ok: true, value: null },
+    { ok: false, error: { code: "storage_unavailable", diagnostic: "fixed outage" } },
+  ];
+  for (const outcome of outcomes) {
+    const ports = makePorts(undefined, undefined, outcome);
+    const result = await ports.catalog.getBookmark("bookmark-requested" as BookmarkId);
+    assert(result === outcome, "Bookmark load outcome reference changed");
+    assertDeepEqual(
+      ports.bookmarkLoadCalls,
+      ["bookmark-requested"],
+      "Bookmark load ID changed",
+    );
+    assertDeepEqual(
+      ports.events,
+      ["loadBookmark"],
+      "Bookmark load touched another dependency",
+    );
   }
 });

@@ -1,25 +1,13 @@
 import type {
   EnqueueBatchRequest,
-  JobClock,
-  JobIdFactory,
   JobLease,
   JobQueue,
-  JobQueueConfig,
+  JobQueueDependencies,
   JobQueueFailure,
-  JobQueueStore,
-  JobRetrySchedule,
   TypedJobFailure,
   WorkerIdentity,
 } from "./public.js";
 import type { IsoDateTime, Outcome } from "../../core/contracts/public.js";
-
-interface JobQueueDependencies {
-  readonly clock: JobClock;
-  readonly retrySchedule: JobRetrySchedule;
-  readonly idFactory: JobIdFactory;
-  readonly store: JobQueueStore;
-  readonly config: JobQueueConfig;
-}
 
 interface ValidatedEnqueue {
   readonly request: EnqueueBatchRequest;

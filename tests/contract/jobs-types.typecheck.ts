@@ -9,16 +9,22 @@ import type {
   EnqueueBatchRequest,
   JobBatchState,
   JobBatchSummary,
+  JobClock,
   JobHandler,
+  JobIdFactory,
   JobLease,
   JobProgress,
   JobQueue,
+  JobQueueConfig,
+  JobQueueDependencies,
   JobQueueFailure,
   JobQueueStore,
   JobResultReference,
+  JobRetrySchedule,
   JobState,
   JobType,
   JobWorker,
+  JobWorkerConfigurationFailure,
   JobWorkerFailure,
   JobWorkerOperation,
   JobWorkerStep,
@@ -28,6 +34,10 @@ import type {
   StoredLeaseCommand,
   TypedJobFailure,
   WorkerIdentity,
+} from "../../modules/jobs/public.js";
+import {
+  createJobQueue,
+  createJobWorker,
 } from "../../modules/jobs/public.js";
 
 type Equal<Left, Right> =
@@ -75,6 +85,22 @@ type HandlerContract = Assert<Equal<JobHandler, {
 type WorkerContract = Assert<Equal<JobWorker, {
   runOne(worker: WorkerIdentity): Promise<Outcome<JobWorkerStep, JobWorkerFailure>>;
 }>>;
+type QueueDependencies = Assert<Equal<JobQueueDependencies, {
+  readonly clock: JobClock;
+  readonly retrySchedule: JobRetrySchedule;
+  readonly idFactory: JobIdFactory;
+  readonly store: JobQueueStore;
+  readonly config: JobQueueConfig;
+}>>;
+type QueueFactory = Assert<Equal<typeof createJobQueue,
+  (dependencies: JobQueueDependencies) => JobQueue
+>>;
+type WorkerFactory = Assert<Equal<typeof createJobWorker,
+  (
+    queue: JobQueue,
+    handlers: readonly JobHandler[],
+  ) => Outcome<JobWorker, JobWorkerConfigurationFailure>
+>>;
 
 // @ts-expect-error job states are closed
 const invalidState: JobState = "dead";
@@ -98,6 +124,9 @@ void (null as unknown as QueueContract);
 void (null as unknown as StoreContract);
 void (null as unknown as HandlerContract);
 void (null as unknown as WorkerContract);
+void (null as unknown as QueueDependencies);
+void (null as unknown as QueueFactory);
+void (null as unknown as WorkerFactory);
 void invalidState;
 void wrongBatch;
 void unsupportedOperation;
