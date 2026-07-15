@@ -95,3 +95,25 @@ Failures use stderr with these exits:
 - `9`: empty selection
 - `10`: run conflict
 - `11`: enqueue rejected
+
+## Run one queued Health job
+
+Run at most one eligible `health_check_v1` job:
+
+```sh
+npm run --silent worker:once -- --database <bookmarks.sqlite>
+```
+
+A completed step writes one JSON line to stdout and exits `0`. The result is
+`idle`, `succeeded`, or `failure_reported`. Job results include job and batch
+IDs. They omit URLs, bookmark content, lease data, timestamps, and diagnostics.
+
+Command failures write one JSON line to stderr:
+
+- `1`: unexpected failure
+- `2`: invalid arguments
+- `4`: storage unavailable
+- `12`: worker unavailable
+
+The command uses fixed `health_check_v1` limits and closes after one worker
+step. Run it again to process another eligible job.

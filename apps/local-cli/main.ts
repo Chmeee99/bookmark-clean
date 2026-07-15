@@ -14,6 +14,10 @@ import type {
   EnqueueCommandResult,
   RunEnqueueCommand,
 } from "./enqueue-command.js";
+import type {
+  RunOneCommand,
+  RunOneCommandResult,
+} from "./run-one-command.js";
 
 export type LocalCliMain = (arguments_: readonly string[]) => Promise<void>;
 
@@ -44,11 +48,16 @@ interface EnqueueCommandRuntime {
   runEnqueueCommand: RunEnqueueCommand;
 }
 
+interface RunOneCommandRuntime {
+  runOneCommand: RunOneCommand;
+}
+
 type CommandResult =
   | ImportCommandResult
   | InspectCommandResult
   | PreviewCommandResult
-  | EnqueueCommandResult;
+  | EnqueueCommandResult
+  | RunOneCommandResult;
 
 declare const require: (
   specifier:
@@ -56,7 +65,8 @@ declare const require: (
     | "./import-command.ts"
     | "./inspect-command.ts"
     | "./preview-command.ts"
-    | "./enqueue-command.ts",
+    | "./enqueue-command.ts"
+    | "./run-one-command.ts",
 ) => unknown;
 
 const processApi = require("node:process") as ProcessApi;
@@ -72,6 +82,9 @@ const { runPreviewCommand } = require(
 const { runEnqueueCommand } = require(
   "./enqueue-command.ts",
 ) as EnqueueCommandRuntime;
+const { runOneCommand } = require(
+  "./run-one-command.ts",
+) as RunOneCommandRuntime;
 
 const unexpected: CommandResult = {
   exitCode: 1,
@@ -87,6 +100,8 @@ const main: LocalCliMain = async (arguments_) => {
       result = await runPreviewCommand(arguments_.slice(1));
     } else if (arguments_[0] === "enqueue") {
       result = await runEnqueueCommand(arguments_.slice(1));
+    } else if (arguments_[0] === "worker:once") {
+      result = await runOneCommand(arguments_.slice(1));
     } else {
       result = await runImportCommand(arguments_);
     }

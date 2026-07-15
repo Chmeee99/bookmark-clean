@@ -46,6 +46,10 @@ interface RequestApi {
 }
 interface NetApi { isIP(address: string): number; }
 interface TransportOptions { readonly resolver?: TargetResolver; }
+type ResolutionResult =
+  | { readonly kind: "resolved"; readonly value: unknown }
+  | { readonly kind: "rejected" }
+  | { readonly kind: "timeout" };
 
 declare const require: (
   specifier:
@@ -153,6 +157,29 @@ function requestOptions(target: ApprovedTarget): Record<string, unknown> {
   };
 }
 
+function resolveBeforeDeadline(
+  resolver: TargetResolver,
+  url: string,
+  timeoutMs: number,
+): Promise<ResolutionResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: ResolutionResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ kind: "timeout" }), timeoutMs);
+    Promise.resolve()
+      .then(() => resolver.resolve(url))
+      .then(
+        (value) => finish({ kind: "resolved", value }),
+        () => finish({ kind: "rejected" }),
+      );
+  });
+}
+
 function executeRequest(
   target: ApprovedTarget,
   input: HealthTransportRequest,
@@ -219,13 +246,31 @@ function createNodeHealthTransport(options: TransportOptions = {}): HealthTransp
   return {
     async request(input) {
       if (!validRequest(input)) return failed("unknown_transport", 0);
-      let resolved;
-      try { resolved = await resolver.resolve(input.url); }
-      catch { return failed("unsupported_url", 0); }
-      if (!resolved || resolved.ok !== true || !validTarget(resolved.value)) {
-        return failed("unsupported_url", 0);
+      const startedAt = performance.now();
+      const resolution = await resolveBeforeDeadline(
+        resolver,
+        input.url,
+        input.timeoutMs,
+      );
+      if (resolution.kind === "timeout") {
+        return failed("timeout", durationSince(startedAt));
       }
-      return executeRequest(resolved.value, input, performance.now());
+      if (resolution.kind === "rejected") {
+        return failed("unsupported_url", durationSince(startedAt));
+      }
+      const resolved = resolution.value as Awaited<ReturnType<TargetResolver["resolve"]>>;
+      if (!resolved || resolved.ok !== true || !validTarget(resolved.value)) {
+        return failed("unsupported_url", durationSince(startedAt));
+      }
+      const remainingMs = input.timeoutMs - durationSince(startedAt);
+      if (remainingMs <= 0) {
+        return failed("timeout", durationSince(startedAt));
+      }
+      return executeRequest(
+        resolved.value,
+        { ...input, timeoutMs: remainingMs },
+        startedAt,
+      );
     },
   };
 }

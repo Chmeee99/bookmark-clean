@@ -66,6 +66,74 @@ function loopbackTransport(): HealthTransport {
   });
 }
 
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function delayedTargetResolver(port: number, delayMs: number): Resolver {
+  return {
+    async resolve(url) {
+      await wait(delayMs);
+      return {
+        ok: true,
+        value: {
+          url,
+          protocol: "http:",
+          address: "127.0.0.1",
+          family: 4,
+          hostname: "localhost",
+          port,
+          path: "/deadline",
+          hostHeader: `localhost:${port}`,
+        },
+      };
+    },
+  };
+}
+
+test("times out target resolution and ignores its late approved target", async () => {
+  let requests = 0;
+  const fixture = await startHttpFixture((_incoming, response) => {
+    requests += 1;
+    response.writeHead(200);
+    response.end("too late");
+  });
+  try {
+    const transport = createNodeHealthTransport({
+      resolver: delayedTargetResolver(fixture.port, 80),
+    });
+    const result = await transport.request(request(
+      `http://localhost:${fixture.port}/deadline`,
+      { timeoutMs: 20 },
+    ));
+    assert(!result.ok && result.error.code === "timeout", "Slow resolution did not time out");
+    await wait(100);
+    assert(requests === 0, "Late resolution started a request");
+  } finally { await fixture.close(); }
+});
+
+test("socket exchange receives only the deadline remaining after resolution", async () => {
+  let requests = 0;
+  const fixture = await startHttpFixture((_incoming, response) => {
+    requests += 1;
+    setTimeout(() => {
+      response.writeHead(200);
+      response.end("after total deadline");
+    }, 120);
+  });
+  try {
+    const transport = createNodeHealthTransport({
+      resolver: delayedTargetResolver(fixture.port, 120),
+    });
+    const result = await transport.request(request(
+      `http://localhost:${fixture.port}/deadline`,
+      { timeoutMs: 200 },
+    ));
+    assert(!result.ok && result.error.code === "timeout", "Socket timeout reset after resolution");
+    assert(requests === 1, "Resolved target did not start exactly one request");
+  } finally { await fixture.close(); }
+});
+
 test("returns selected response facts through one pinned request", async () => {
   const seen: Array<{ readonly url?: string; readonly host?: string }> = [];
   const fixture = await startHttpFixture((incoming, response) => {

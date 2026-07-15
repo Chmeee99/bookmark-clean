@@ -1056,6 +1056,7 @@ Observation and idempotency rules:
 Transport and request-safety rules:
 
 - `HealthTransport` executes one request with redirects disabled. The Health service walks redirects itself so every hop is recorded and bounded.
+- `HealthTransportRequest.timeoutMs` is the deadline for one complete transport call, including target resolution and the socket exchange. A resolution that misses the deadline returns `timeout`; its late result cannot start a request. Reported duration includes resolution time.
 - The production transport accepts only HTTP and HTTPS URLs without credentials. Before every request, including redirect targets, it resolves the host, rejects loopback/private/link-local/multicast/unspecified destinations by default, pins the approved address for the connection, and preserves the original host for HTTP/TLS verification. Any unresolved or mixed public/private target is rejected as `unsupported_url`. These checks cannot be disabled by page content or redirects.
 - Test transports may explicitly allow loopback fixtures. That permission is injected in tests and never becomes a user URL rule.
 - Transport adapters author `HealthTransportFailureCode` from structured runtime facts. Unknown Node `TypeError` cases remain `unknown_transport` until typed cause fixtures prove a narrower mapping. Exception messages, socket prose, and traces never select a code.
@@ -1463,11 +1464,63 @@ The command selects `health_check_v1`; `run-id` is an opaque non-empty caller-au
 
 Enqueue failure stderr is one JSON line with `ok: false` and one of `invalid_arguments`, `storage_unavailable`, `snapshot_invalid`, `snapshot_not_found`, `folder_not_found`, `estimate_overflow`, `empty_selection`, `run_conflict`, `enqueue_rejected`, or `unexpected_failure`. Exit codes are `2`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, and `1` respectively. `queue_unavailable` maps to `storage_unavailable`. The multi-module database session closes before output on every opened path.
 
+The one-job Health worker command is:
+
+```text
+npm run --silent worker:once -- --database <bookmarks.sqlite>
+```
+
+Its Local CLI result contract is:
+
+```ts
+type RunOneCommandSuccess =
+  | { readonly ok: true; readonly status: "idle" }
+  | {
+      readonly ok: true;
+      readonly status: "succeeded";
+      readonly jobId: JobId;
+      readonly batchId: JobBatchId;
+      readonly result: JobResultReference;
+    }
+  | {
+      readonly ok: true;
+      readonly status: "failure_reported";
+      readonly jobId: JobId;
+      readonly batchId: JobBatchId;
+      readonly failureCode: string;
+      readonly disposition: "retry" | "terminal";
+    };
+
+interface RunOneCommandFailure {
+  readonly ok: false;
+  readonly code:
+    | "invalid_arguments"
+    | "storage_unavailable"
+    | "worker_unavailable"
+    | "unexpected_failure";
+}
+
+type RunOneCommandResult =
+  | { readonly exitCode: 0; readonly output: RunOneCommandSuccess }
+  | {
+      readonly exitCode: 1 | 2 | 4 | 12;
+      readonly output: RunOneCommandFailure;
+    };
+
+type RunOneCommand = (
+  arguments_: readonly string[],
+) => Promise<RunOneCommandResult>;
+```
+
+The command accepts exactly one non-empty `--database` flag and runs at most one job with worker ID `worker:local-once`. Its fixed `health_check_v1` operating profile uses a 10,000 ms deadline for each request hop, five redirects, a 65,536-byte body cap, and a 300,000 ms lease. The required retry schedule returns the failure time unchanged; `health_check_v1` has one queue attempt, so this profile never makes a failed job eligible for another attempt. A multi-attempt profile requires a new policy decision.
+
+`idle`, `succeeded`, and `failure_reported` are completed command steps and exit `0`. Success output omits lease tokens, targets, input versions, URLs, bookmark content, timestamps, and diagnostics. Queue storage failures map to exit `4`; other typed queue or handler interruptions map to `worker_unavailable` and exit `12`. Invalid handler configuration or output is an invariant violation and reaches the existing process-level `unexpected_failure` boundary. Every opened Health worker session closes in `finally`.
+
 Hides: argument parsing, filesystem calls, wall-clock access, JSON serialization, stream writes, and process exit-code assignment.
 
 Allowed dependencies: Node filesystem/process APIs and public Orchestrator, Catalog, Processing, Jobs, Health, Node-runtime, Chrome HTML, and SQLite session contracts.
 
-Boundary notes: the CLI is the composition root. Its Health worker session opens the multi-module database session, builds Catalog and Jobs services from public factories, builds the checker from `NodeRuntimePorts`, registers exactly one Health handler, and exposes only the resulting `JobWorker` plus `close`. The enqueue command separately composes Catalog, `JobEnqueuer`, and `ProcessingStarter`; it does not construct worker-only lease or retry policy. The safe resolver, transport options, repositories, stores, checker, handler array, and Jobs request encoding stay inside their owners. The CLI may select concrete implementations but may not parse HTML, validate Catalog data, traverse snapshots, assemble Jobs requests, execute SQL, calculate processing budgets, or interpret diagnostics. Import prints no bookmark contents. Inspection, preview, and enqueue may print folder IDs and titles plus aggregate counts, but never bookmark titles, URLs, source IDs, dates other than snapshot capture or typed batch times, or diagnostics. It never mutates Chrome.
+Boundary notes: the CLI is the composition root. Its Health worker session opens the multi-module database session, builds Catalog and Jobs services from public factories, builds the checker from `NodeRuntimePorts`, registers exactly one Health handler, and exposes only the resulting `JobWorker` plus `close`. The run-one command owns the fixed first operating profile and invokes that worker once. The enqueue command separately composes Catalog, `JobEnqueuer`, and `ProcessingStarter`; it does not construct worker-only lease or retry policy. The safe resolver, transport options, repositories, stores, checker, handler array, and Jobs request encoding stay inside their owners. The CLI may select concrete implementations but may not parse HTML, validate Catalog data, traverse snapshots, assemble Jobs requests, execute SQL, calculate processing budgets, interpret diagnostics, or repeat worker execution. Import prints no bookmark contents. Inspection, preview, and enqueue may print folder IDs and titles plus aggregate counts, but never bookmark titles, URLs, source IDs, dates other than snapshot capture or typed batch times, or diagnostics. It never mutates Chrome.
 
 ## Web UI
 
@@ -1576,6 +1629,17 @@ To add a new provider, source, extractor, or review policy:
 - Explicitly out of scope: worker execution, polling, live network calls, production Health timeout or lease values, bookmark URLs or titles in output, SQL changes, new Jobs states, multi-attempt profiles, scheduling recurring runs, staleness decisions, deletion, and Chrome mutation.
 - Provisional items: none. Callers supply the required run ID. The enqueue-only Jobs seam removes the otherwise unresolved need for unused worker policy values.
 
+## Capability brief: one-job Health worker command
+
+- Behavior: accept one database path, open the existing Health worker session with the fixed first operating profile, lease at most one eligible `health_check` job, report its handler result durably, return a redacted typed step, and close. One invocation never loops or polls.
+- Placement: the Local CLI owns command arguments, operating values, result projection, exit codes, and lifecycle. The existing `HealthWorkerSession` owns public composition. Jobs retains lease and transition behavior, Health retains URL checking and observation meaning, and the Node adapter retains request safety and timeout mechanics.
+- Contract changes: clarify that the existing transport timeout covers resolution plus socket exchange, then add the type-only Local CLI `RunOneCommandResult` contract above. No Jobs, Health, SQLite, Catalog, Processing, or Node public type shape changes.
+- Operating profile: worker ID `worker:local-once`; 10,000 ms per-hop transport deadline; five redirects; 65,536-byte body cap; 300,000 ms lease; failure-time retry schedule; one queue attempt from `health_check_v1`.
+- Migration order: complete the Node timeout behavior first, add the Local CLI result types, implement the direct command, prove one real queued job through SQLite with controlled zero-request loopback rejection, then add package routing and subprocess acceptance.
+- Proof boundary: controlled fixtures may prove that default request safety rejects loopback without opening a socket. F0 does not claim public-internet success. Existing controlled HTTPS evidence remains the only successful production-transport proof.
+- Explicitly out of scope: worker loops, polling, concurrency, configurable operating values, multi-attempt profiles, progress output, scheduling, public-internet acceptance, staleness, deletion, model calls, rendered browsing, and Chrome mutation.
+- Provisional items: none. The first profile values are fixed for this command and version.
+
 ## Contract changelog
 
 - 2026-07-12: initial target module map created; no runtime consumers exist.
@@ -1608,3 +1672,4 @@ To add a new provider, source, extractor, or review policy:
 - 2026-07-15: implemented the type-only Processing durable-start contract; the E3 starter factory consumes it next while the current planner runtime requires no migration.
 - 2026-07-15: implemented `createProcessingStarter` with shared depth-first traversal, collision-free private identity encodings, and closed Jobs failure mapping; existing preview consumers required no migration.
 - 2026-07-15: completed the real SQLite enqueue proof and Local CLI `enqueue` command with exact replay, fixed process output, and no worker or network execution.
+- 2026-07-15: placed the one-job Health worker command in the Local CLI, fixed its first operating profile and redacted result contract, and required the existing transport timeout to cover DNS resolution before command implementation.
