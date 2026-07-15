@@ -70,3 +70,28 @@ Preview failures use stderr with these exits:
 - `6`: snapshot not found
 - `7`: folder not found
 - `8`: estimate overflow
+
+## Enqueue selected-folder work
+
+Use the snapshot and folder IDs returned by inspection. Supply a non-empty run ID for the logical run:
+
+```sh
+npm run --silent enqueue -- --database <bookmarks.sqlite> --snapshot <snapshot-id> --folder <folder-id> --run <run-id>
+```
+
+The command creates one durable `health_check_v1` job per bookmark below the selected folder. Success writes one JSON line containing the run ID, the same bounded preview, and the saved batch summary. Repeating the same selection and run ID returns the original batch.
+
+Enqueue only saves work. It does not start a worker or make network requests.
+
+Failures use stderr with these exits:
+
+- `1`: unexpected failure
+- `2`: invalid arguments
+- `4`: storage unavailable
+- `5`: invalid stored snapshot
+- `6`: snapshot not found
+- `7`: folder not found
+- `8`: estimate overflow
+- `9`: empty selection
+- `10`: run conflict
+- `11`: enqueue rejected

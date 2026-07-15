@@ -10,10 +10,21 @@ import type {
   ProcessingPreview,
   ProcessingPreviewFailure,
   ProcessingPreviewRequest,
+  ProcessingRunId,
+  ProcessingStarter,
+  ProcessingStarterDependencies,
+  ProcessingStartRequest,
 } from "../../modules/processing/public.js";
+import type {
+  EnqueueBatchRequest,
+  JobBatchSummary,
+  JobEnqueuer,
+  JobQueueFailure,
+} from "../../modules/jobs/public.js";
 import type {
   BookmarkId,
   IsoDateTime,
+  JobBatchId,
   Outcome,
   SnapshotId,
 } from "../../core/contracts/public.js";
@@ -24,6 +35,7 @@ interface NodeTestApi {
 
 interface ProcessingRuntime {
   createProcessingPlanner(catalog: BookmarkCatalog): ProcessingPlanner;
+  createProcessingStarter(dependencies: ProcessingStarterDependencies): ProcessingStarter;
 }
 
 declare const require: (specifier: string) => unknown;
@@ -33,10 +45,17 @@ const { test } = loadModule("node:test") as NodeTestApi;
 const publicRuntime = loadModule(
   "../../modules/processing/public.ts",
 ) as ProcessingRuntime;
-const { createProcessingPlanner } = publicRuntime;
+const { createProcessingPlanner, createProcessingStarter } = publicRuntime;
 
 const SNAPSHOT_ID = "snapshot:processing" as SnapshotId;
 const CAPTURED_AT = "2026-07-14T00:00:00.000Z" as IsoDateTime;
+const RUN_ID = "run:processing" as ProcessingRunId;
+const BATCH_SUMMARY: JobBatchSummary = {
+  batchId: "batch:processing" as JobBatchId,
+  state: "active",
+  totalCount: 3,
+  createdAt: CAPTURED_AT,
+};
 
 function bookmark(id: string): BookmarkLinkRecord {
   return {
@@ -97,6 +116,14 @@ function request(folderId = "bookmark:root"): ProcessingPreviewRequest {
   };
 }
 
+function startRequest(
+  folderId = "bookmark:root",
+  runId = RUN_ID,
+  snapshotId = SNAPSHOT_ID,
+): ProcessingStartRequest {
+  return { ...request(folderId), snapshotId, runId };
+}
+
 function catalogReturning(
   outcome: Outcome<BookmarkSnapshot | null, CatalogStorageFailure>,
   onRead: () => void = () => undefined,
@@ -111,6 +138,18 @@ function catalogReturning(
     },
     async getBookmark() {
       throw new Error("Bookmark lookup must not run during preview");
+    },
+  };
+}
+
+function jobsReturning(
+  outcome: Outcome<JobBatchSummary, JobQueueFailure>,
+  onEnqueue: (request: EnqueueBatchRequest) => void = () => undefined,
+): JobEnqueuer {
+  return {
+    async enqueue(enqueueRequest) {
+      onEnqueue(enqueueRequest);
+      return outcome;
     },
   };
 }
@@ -134,8 +173,216 @@ async function preview(
   return planner.preview(input);
 }
 
-test("public Processing runtime exposes only its planner factory", () => {
-  assertJsonEqual(Object.keys(publicRuntime), ["createProcessingPlanner"], "Runtime exports changed");
+test("public Processing runtime exposes only its approved factories", () => {
+  assertJsonEqual(
+    Object.keys(publicRuntime).sort(),
+    ["createProcessingPlanner", "createProcessingStarter"],
+    "Runtime exports changed",
+  );
+});
+
+test("starter authors one exact depth-first enqueue request", async () => {
+  const source = snapshot();
+  const roots = source.roots;
+  const root = roots[0] as BookmarkFolderRecord;
+  const children = root.children;
+  let catalogReads = 0;
+  const authored: EnqueueBatchRequest[] = [];
+  const starter = createProcessingStarter({
+    catalog: catalogReturning(
+      { ok: true, value: source },
+      () => { catalogReads += 1; },
+    ),
+    jobs: jobsReturning(
+      { ok: true, value: BATCH_SUMMARY },
+      (enqueueRequest) => authored.push(enqueueRequest),
+    ),
+  });
+  const input = Object.freeze(startRequest());
+  const before = JSON.stringify(input);
+
+  const result = await starter.start(input);
+
+  assert(result.ok, "Processing start failed");
+  assertEqual(catalogReads, 1, "Start did not read Catalog once");
+  assertEqual(authored.length, 1, "Start did not enqueue once");
+  assert(result.value.batch === BATCH_SUMMARY, "Start replaced the Jobs batch summary");
+  assertEqual(JSON.stringify(input), before, "Start mutated its request");
+  assert(source.roots === roots, "Start replaced snapshot roots");
+  assert(root.children === children, "Start replaced folder children");
+  assertJsonEqual(result.value.preview, {
+    snapshotId: SNAPSHOT_ID,
+    folderId: "bookmark:root",
+    folderTitle: "Root",
+    profile: {
+      id: "health_check_v1",
+      jobType: "health_check",
+      maximumJobAttempts: 1,
+      maximumNetworkRequestsPerJob: 6,
+      maximumModelCallsPerJob: 0,
+    },
+    bookmarkCount: 3,
+    jobCount: 3,
+    maximumNetworkRequests: 18,
+    maximumModelCalls: 0,
+  }, "Start preview changed");
+  const enqueueRequest = authored[0];
+  assert(enqueueRequest.idempotencyKey.length > 0, "Batch key was empty");
+  const inputVersion = enqueueRequest.jobs[0].target.inputVersion;
+  assert(inputVersion.length > 0, "Input version was empty");
+  assertJsonEqual(enqueueRequest.jobs, [
+    {
+      type: "health_check",
+      target: {
+        kind: "bookmark",
+        bookmarkId: "bookmark:direct",
+        inputVersion,
+      },
+      priority: 0,
+      sequence: 0,
+      maxAttempts: 1,
+    },
+    {
+      type: "health_check",
+      target: {
+        kind: "bookmark",
+        bookmarkId: "bookmark:nested-one",
+        inputVersion,
+      },
+      priority: 0,
+      sequence: 1,
+      maxAttempts: 1,
+    },
+    {
+      type: "health_check",
+      target: {
+        kind: "bookmark",
+        bookmarkId: "bookmark:nested-two",
+        inputVersion,
+      },
+      priority: 0,
+      sequence: 2,
+      maxAttempts: 1,
+    },
+  ], "Authored jobs changed");
+});
+
+test("starter identity encodings are deterministic and collision-free", async () => {
+  const authored: EnqueueBatchRequest[] = [];
+  const starter = createProcessingStarter({
+    catalog: catalogReturning({ ok: true, value: snapshot() }),
+    jobs: jobsReturning(
+      { ok: true, value: BATCH_SUMMARY },
+      (enqueueRequest) => authored.push(enqueueRequest),
+    ),
+  });
+  const inputs = [
+    startRequest(),
+    startRequest(),
+    startRequest("bookmark:root", "run:other" as ProcessingRunId),
+    startRequest("bookmark:root", "bc" as ProcessingRunId, "a" as SnapshotId),
+    startRequest("bookmark:root", "c" as ProcessingRunId, "ab" as SnapshotId),
+  ];
+
+  for (const input of inputs) {
+    const result = await starter.start(input);
+    assert(result.ok, "Determinism start failed");
+  }
+
+  assertEqual(JSON.stringify(authored[0]), JSON.stringify(authored[1]), "Same run drifted");
+  assert(
+    authored[0].idempotencyKey !== authored[2].idempotencyKey,
+    "Changed run reused the batch key",
+  );
+  assert(
+    authored[0].jobs[0].target.inputVersion !== authored[2].jobs[0].target.inputVersion,
+    "Changed run reused the input version",
+  );
+  assert(
+    authored[3].idempotencyKey !== authored[4].idempotencyKey,
+    "Ambiguous tuples collided in the batch key",
+  );
+  assert(
+    authored[3].jobs[0].target.inputVersion !== authored[4].jobs[0].target.inputVersion,
+    "Ambiguous tuples collided in the input version",
+  );
+});
+
+test("starter rejects invalid and empty selections before enqueue", async () => {
+  let catalogReads = 0;
+  let enqueues = 0;
+  const starter = createProcessingStarter({
+    catalog: catalogReturning(
+      { ok: true, value: snapshot() },
+      () => { catalogReads += 1; },
+    ),
+    jobs: jobsReturning(
+      { ok: true, value: BATCH_SUMMARY },
+      () => { enqueues += 1; },
+    ),
+  });
+
+  const invalid = await starter.start(startRequest(
+    "bookmark:root",
+    "" as ProcessingRunId,
+  ));
+  assert(!invalid.ok, "Empty run ID passed");
+  assertJsonEqual(invalid.error, { code: "invalid_request" }, "Invalid run failure changed");
+  assertEqual(catalogReads, 0, "Invalid run reached Catalog");
+
+  const empty = await starter.start(startRequest("bookmark:empty"));
+  assert(!empty.ok, "Empty selection passed");
+  assertJsonEqual(empty.error, { code: "empty_selection" }, "Empty selection failure changed");
+  assertEqual(catalogReads, 1, "Empty selection Catalog reads changed");
+  assertEqual(enqueues, 0, "Empty selection reached Jobs");
+});
+
+test("starter maps every Jobs failure without diagnostics", async () => {
+  const cases = [
+    ["empty_batch", { code: "empty_selection" }],
+    ["idempotency_conflict", { code: "run_conflict" }],
+    ["storage_unavailable", { code: "queue_unavailable" }],
+    ["invalid_request", { code: "enqueue_rejected", queueCode: "invalid_request" }],
+    ["batch_not_found", { code: "enqueue_rejected", queueCode: "batch_not_found" }],
+    ["stale_lease", { code: "enqueue_rejected", queueCode: "stale_lease" }],
+    ["invalid_transition", { code: "enqueue_rejected", queueCode: "invalid_transition" }],
+  ] as const;
+
+  for (const [code, expected] of cases) {
+    const starter = createProcessingStarter({
+      catalog: catalogReturning({ ok: true, value: snapshot() }),
+      jobs: jobsReturning({
+        ok: false,
+        error: { code, diagnostic: "private" },
+      }),
+    });
+    const result = await starter.start(startRequest());
+    assert(!result.ok, `${code} passed`);
+    assertJsonEqual(result.error, expected, `${code} mapping changed`);
+  }
+});
+
+test("starter preserves preview read failures", async () => {
+  const cases = [
+    [{ ok: true, value: null }, { code: "snapshot_not_found" }],
+    [
+      { ok: false, error: { code: "storage_unavailable", diagnostic: "private" } },
+      { code: "catalog_unavailable" },
+    ],
+    [
+      { ok: false, error: { code: "stored_snapshot_invalid", diagnostic: "private" } },
+      { code: "snapshot_invalid" },
+    ],
+  ] as const;
+  for (const [catalogOutcome, expected] of cases) {
+    const starter = createProcessingStarter({
+      catalog: catalogReturning(catalogOutcome),
+      jobs: jobsReturning({ ok: true, value: BATCH_SUMMARY }),
+    });
+    const result = await starter.start(startRequest());
+    assert(!result.ok, "Preview failure passed");
+    assertJsonEqual(result.error, expected, "Preview failure mapping changed");
+  }
 });
 
 test("root and nested previews return exact bounded health work", async () => {

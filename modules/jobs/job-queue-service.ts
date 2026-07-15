@@ -1,6 +1,8 @@
 import type {
   EnqueueBatchRequest,
   JobLease,
+  JobEnqueuer,
+  JobEnqueuerDependencies,
   JobQueue,
   JobQueueDependencies,
   JobQueueFailure,
@@ -44,6 +46,7 @@ interface ValidationApi {
 declare const require: (specifier: "./job-queue-validation.ts") => unknown;
 declare const module: {
   exports: {
+    createJobEnqueuer: typeof createJobEnqueuer;
     createJobQueue: typeof createJobQueue;
   };
 };
@@ -61,13 +64,11 @@ const {
   addLeaseDuration,
 } = require("./job-queue-validation.ts") as ValidationApi;
 
-function createJobQueue({
+function createJobEnqueuer({
   clock,
-  retrySchedule,
   idFactory,
   store,
-  config,
-}: JobQueueDependencies): JobQueue {
+}: JobEnqueuerDependencies): JobEnqueuer {
   async function enqueue(request: EnqueueBatchRequest) {
     const validation = validateEnqueueRequest(request);
     if (!validation.ok) {
@@ -92,6 +93,18 @@ function createJobQueue({
       createdAt: now,
     });
   }
+
+  return { enqueue };
+}
+
+function createJobQueue({
+  clock,
+  retrySchedule,
+  idFactory,
+  store,
+  config,
+}: JobQueueDependencies): JobQueue {
+  const { enqueue } = createJobEnqueuer({ clock, idFactory, store });
 
   async function lease(
     worker: WorkerIdentity,
@@ -231,4 +244,4 @@ function createJobQueue({
   };
 }
 
-module.exports = { createJobQueue };
+module.exports = { createJobEnqueuer, createJobQueue };

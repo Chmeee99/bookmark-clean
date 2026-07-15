@@ -102,10 +102,13 @@ export interface JobQueueFailure {
   readonly diagnostic?: string;
 }
 
-export interface JobQueue {
+export interface JobEnqueuer {
   enqueue(
     request: EnqueueBatchRequest,
   ): Promise<Outcome<JobBatchSummary, JobQueueFailure>>;
+}
+
+export interface JobQueue extends JobEnqueuer {
   lease(
     worker: WorkerIdentity,
     capabilities: readonly JobType[],
@@ -134,14 +137,23 @@ export interface JobRetrySchedule {
   nextRetryAt(attempt: number, failedAt: IsoDateTime): IsoDateTime;
 }
 
-export interface JobIdFactory {
+export interface JobEnqueueIdFactory {
   nextBatchId(): JobBatchId;
   nextJobId(): JobId;
+}
+
+export interface JobIdFactory extends JobEnqueueIdFactory {
   nextLeaseToken(): JobLeaseToken;
 }
 
 export interface JobQueueConfig {
   readonly leaseDurationMs: number;
+}
+
+export interface JobEnqueuerDependencies {
+  readonly clock: JobClock;
+  readonly idFactory: JobEnqueueIdFactory;
+  readonly store: JobQueueStore;
 }
 
 export interface JobQueueDependencies {
@@ -252,6 +264,10 @@ export interface JobWorker {
   ): Promise<Outcome<JobWorkerStep, JobWorkerFailure>>;
 }
 
+export declare function createJobEnqueuer(
+  dependencies: JobEnqueuerDependencies,
+): JobEnqueuer;
+
 export declare function createJobQueue(
   dependencies: JobQueueDependencies,
 ): JobQueue;
@@ -262,6 +278,7 @@ export declare function createJobWorker(
 ): Outcome<JobWorker, JobWorkerConfigurationFailure>;
 
 interface JobQueueRuntime {
+  createJobEnqueuer: typeof createJobEnqueuer;
   createJobQueue: typeof createJobQueue;
 }
 
@@ -274,19 +291,22 @@ declare const require: (
 ) => unknown;
 declare const module: {
   exports: {
+    createJobEnqueuer: typeof createJobEnqueuer;
     createJobQueue: typeof createJobQueue;
     createJobWorker: typeof createJobWorker;
   };
 };
 
-const { createJobQueue: createJobQueueRuntime } = require(
-  "./job-queue-service.ts",
-) as JobQueueRuntime;
+const {
+  createJobEnqueuer: createJobEnqueuerRuntime,
+  createJobQueue: createJobQueueRuntime,
+} = require("./job-queue-service.ts") as JobQueueRuntime;
 const { createJobWorker: createJobWorkerRuntime } = require(
   "./job-worker-service.ts",
 ) as JobWorkerRuntime;
 
 module.exports = {
+  createJobEnqueuer: createJobEnqueuerRuntime,
   createJobQueue: createJobQueueRuntime,
   createJobWorker: createJobWorkerRuntime,
 };

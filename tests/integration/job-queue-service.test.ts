@@ -2,8 +2,13 @@ import type {
   EnqueueBatchRequest,
   EnqueueJob,
   JobBatchSummary,
+  JobClock,
+  JobEnqueueIdFactory,
+  JobEnqueuer,
+  JobEnqueuerDependencies,
   JobLease,
   JobQueueFailure,
+  JobQueueStore,
   JobResultReference,
   WorkerIdentity,
 } from "../../modules/jobs/public.js";
@@ -12,6 +17,7 @@ import type {
   JobBatchId,
   Outcome,
   WorkerId,
+  JobId,
 } from "../../core/contracts/public.js";
 import type {
   EnqueueOutcome,
@@ -47,8 +53,15 @@ interface HelperApi {
   ) => void;
 }
 
+interface JobsPublicApi {
+  createJobEnqueuer(dependencies: JobEnqueuerDependencies): JobEnqueuer;
+}
+
 declare const require: (
-  specifier: "node:test" | "../helpers/fake-job-queue.ts",
+  specifier:
+    | "node:test"
+    | "../helpers/fake-job-queue.ts"
+    | "../../modules/jobs/public.ts",
 ) => unknown;
 
 const { test } = require("node:test") as NodeTestApi;
@@ -66,6 +79,77 @@ const {
   assertDeepEqual,
   assertFailureCode,
 } = require("../helpers/fake-job-queue.ts") as HelperApi;
+const { createJobEnqueuer } = require(
+  "../../modules/jobs/public.ts",
+) as JobsPublicApi;
+
+test("enqueue-only factory uses only narrow dependencies", async () => {
+  const events: string[] = [];
+  const clock: JobClock = {
+    now() {
+      events.push("clock");
+      return NOW;
+    },
+  };
+  const idFactory: JobEnqueueIdFactory = {
+    nextBatchId() {
+      events.push("id:batch");
+      return "batch-narrow" as JobBatchId;
+    },
+    nextJobId() {
+      events.push("id:job");
+      return "job-narrow" as JobId;
+    },
+  };
+  const store: JobQueueStore = {
+    async enqueueBatch(command) {
+      events.push("store:enqueue");
+      return {
+        ok: true,
+        value: {
+          batchId: command.batchId,
+          state: "active",
+          totalCount: command.jobIds.length,
+          createdAt: command.createdAt,
+        },
+      };
+    },
+    async leaseNext() {
+      throw new Error("enqueue called leaseNext");
+    },
+    async completeLease() {
+      throw new Error("enqueue called completeLease");
+    },
+    async failLease() {
+      throw new Error("enqueue called failLease");
+    },
+    async setBatchState() {
+      throw new Error("enqueue called setBatchState");
+    },
+    async readProgress() {
+      throw new Error("enqueue called readProgress");
+    },
+  };
+  const enqueuer = createJobEnqueuer({ clock, idFactory, store });
+
+  const invalidResult = await enqueuer.enqueue({
+    idempotencyKey: "request-1",
+    jobs: [],
+  });
+  assertFailureCode(invalidResult, "empty_batch", "Narrow enqueuer accepted an empty batch");
+  assertDeepEqual(events, [], "Invalid narrow enqueue touched a dependency");
+
+  const result = await enqueuer.enqueue(validRequest());
+  if (!result.ok) {
+    throw new Error("Narrow enqueue failed");
+  }
+  assertEqual(result.value.batchId, "batch-narrow" as JobBatchId, "Narrow batch ID changed");
+  assertDeepEqual(
+    events,
+    ["clock", "id:batch", "id:job", "store:enqueue"],
+    "Narrow enqueue dependency order changed",
+  );
+});
 
 test("invalid enqueue shapes return exact failures before dependencies", async () => {
   const base = validRequest();

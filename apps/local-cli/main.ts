@@ -10,6 +10,10 @@ import type {
   PreviewCommandResult,
   RunPreviewCommand,
 } from "./preview-command.js";
+import type {
+  EnqueueCommandResult,
+  RunEnqueueCommand,
+} from "./enqueue-command.js";
 
 export type LocalCliMain = (arguments_: readonly string[]) => Promise<void>;
 
@@ -36,17 +40,23 @@ interface PreviewCommandRuntime {
   runPreviewCommand: RunPreviewCommand;
 }
 
+interface EnqueueCommandRuntime {
+  runEnqueueCommand: RunEnqueueCommand;
+}
+
 type CommandResult =
   | ImportCommandResult
   | InspectCommandResult
-  | PreviewCommandResult;
+  | PreviewCommandResult
+  | EnqueueCommandResult;
 
 declare const require: (
   specifier:
     | "node:process"
     | "./import-command.ts"
     | "./inspect-command.ts"
-    | "./preview-command.ts",
+    | "./preview-command.ts"
+    | "./enqueue-command.ts",
 ) => unknown;
 
 const processApi = require("node:process") as ProcessApi;
@@ -59,6 +69,9 @@ const { runInspectCommand } = require(
 const { runPreviewCommand } = require(
   "./preview-command.ts",
 ) as PreviewCommandRuntime;
+const { runEnqueueCommand } = require(
+  "./enqueue-command.ts",
+) as EnqueueCommandRuntime;
 
 const unexpected: CommandResult = {
   exitCode: 1,
@@ -72,6 +85,8 @@ const main: LocalCliMain = async (arguments_) => {
       result = await runInspectCommand(arguments_.slice(1));
     } else if (arguments_[0] === "preview") {
       result = await runPreviewCommand(arguments_.slice(1));
+    } else if (arguments_[0] === "enqueue") {
+      result = await runEnqueueCommand(arguments_.slice(1));
     } else {
       result = await runImportCommand(arguments_);
     }

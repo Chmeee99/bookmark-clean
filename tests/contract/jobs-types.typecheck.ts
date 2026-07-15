@@ -10,6 +10,9 @@ import type {
   JobBatchState,
   JobBatchSummary,
   JobClock,
+  JobEnqueueIdFactory,
+  JobEnqueuer,
+  JobEnqueuerDependencies,
   JobHandler,
   JobIdFactory,
   JobLease,
@@ -36,6 +39,7 @@ import type {
   WorkerIdentity,
 } from "../../modules/jobs/public.js";
 import {
+  createJobEnqueuer,
   createJobQueue,
   createJobWorker,
 } from "../../modules/jobs/public.js";
@@ -68,6 +72,17 @@ type QueueContract = Assert<Equal<JobQueue, {
   cancel(batchId: JobBatchId): Promise<Outcome<void, JobQueueFailure>>;
   getProgress(batchId: JobBatchId): Promise<Outcome<JobProgress, JobQueueFailure>>;
 }>>;
+type EnqueuerContract = Assert<Equal<JobEnqueuer, {
+  enqueue(request: EnqueueBatchRequest): Promise<Outcome<JobBatchSummary, JobQueueFailure>>;
+}>>;
+type EnqueueIdFactoryContract = Assert<Equal<JobEnqueueIdFactory, {
+  nextBatchId(): JobBatchId;
+  nextJobId(): JobId;
+}>>;
+type QueueExtendsEnqueuer = Assert<JobQueue extends JobEnqueuer ? true : false>;
+type IdFactoryExtendsEnqueueFactory = Assert<
+  JobIdFactory extends JobEnqueueIdFactory ? true : false
+>;
 
 type StoreContract = Assert<Equal<JobQueueStore, {
   enqueueBatch(command: StoredEnqueueCommand): Promise<Outcome<JobBatchSummary, JobQueueFailure>>;
@@ -92,6 +107,17 @@ type QueueDependencies = Assert<Equal<JobQueueDependencies, {
   readonly store: JobQueueStore;
   readonly config: JobQueueConfig;
 }>>;
+type EnqueuerDependencies = Assert<Equal<JobEnqueuerDependencies, {
+  readonly clock: JobClock;
+  readonly idFactory: JobEnqueueIdFactory;
+  readonly store: JobQueueStore;
+}>>;
+type QueueDependenciesExtendEnqueuerDependencies = Assert<
+  JobQueueDependencies extends JobEnqueuerDependencies ? true : false
+>;
+type EnqueuerFactory = Assert<Equal<typeof createJobEnqueuer,
+  (dependencies: JobEnqueuerDependencies) => JobEnqueuer
+>>;
 type QueueFactory = Assert<Equal<typeof createJobQueue,
   (dependencies: JobQueueDependencies) => JobQueue
 >>;
@@ -121,10 +147,17 @@ void (null as unknown as JobTypes);
 void (null as unknown as ResultReferences);
 void (null as unknown as WorkerOperations);
 void (null as unknown as QueueContract);
+void (null as unknown as EnqueuerContract);
+void (null as unknown as EnqueueIdFactoryContract);
+void (null as unknown as QueueExtendsEnqueuer);
+void (null as unknown as IdFactoryExtendsEnqueueFactory);
 void (null as unknown as StoreContract);
 void (null as unknown as HandlerContract);
 void (null as unknown as WorkerContract);
 void (null as unknown as QueueDependencies);
+void (null as unknown as EnqueuerDependencies);
+void (null as unknown as QueueDependenciesExtendEnqueuerDependencies);
+void (null as unknown as EnqueuerFactory);
 void (null as unknown as QueueFactory);
 void (null as unknown as WorkerFactory);
 void invalidState;

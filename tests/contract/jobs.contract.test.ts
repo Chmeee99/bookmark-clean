@@ -11,7 +11,7 @@ const jobsPublic = require("../../modules/jobs/public.ts") as Record<string, unk
 
 test("Jobs public contract exposes only its composition factories", () => {
   const keys = Object.keys(jobsPublic).sort();
-  const expected = ["createJobQueue", "createJobWorker"];
+  const expected = ["createJobEnqueuer", "createJobQueue", "createJobWorker"];
   if (JSON.stringify(keys) !== JSON.stringify(expected)) {
     throw new Error(`Unexpected Jobs runtime exports: ${keys.join(", ")}`);
   }

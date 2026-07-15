@@ -339,7 +339,7 @@ Boundary notes: this adapter produces Catalog input but does not allocate `Bookm
 
 ## Processing module
 
-Responsibility: turn a selected Catalog folder into a versioned bounded-work preview.
+Responsibility: author versioned bounded work for a selected Catalog folder; the runtime previews it and enqueues it durably.
 
 Public contract:
 
@@ -392,13 +392,63 @@ interface ProcessingPlanner {
 declare function createProcessingPlanner(catalog: BookmarkCatalog): ProcessingPlanner;
 ```
 
+Additive contract for selected-folder enqueue:
+
+```ts
+type ProcessingRunId = string & { readonly __brand: "ProcessingRunId" };
+
+interface ProcessingStartRequest extends ProcessingPreviewRequest {
+  readonly runId: ProcessingRunId;
+}
+
+interface ProcessingStart {
+  readonly preview: ProcessingPreview;
+  readonly batch: JobBatchSummary;
+}
+
+type ProcessingStartFailure =
+  | ProcessingPreviewFailure
+  | { readonly code: "empty_selection" }
+  | { readonly code: "run_conflict" }
+  | { readonly code: "queue_unavailable" }
+  | {
+      readonly code: "enqueue_rejected";
+      readonly queueCode:
+        | "invalid_request"
+        | "batch_not_found"
+        | "stale_lease"
+        | "invalid_transition";
+    };
+
+interface ProcessingStarter {
+  start(
+    request: ProcessingStartRequest,
+  ): Promise<Outcome<ProcessingStart, ProcessingStartFailure>>;
+}
+
+interface ProcessingStarterDependencies {
+  readonly catalog: Pick<BookmarkCatalog, "getSnapshot">;
+  readonly jobs: JobEnqueuer;
+}
+
+declare function createProcessingStarter(
+  dependencies: ProcessingStarterDependencies,
+): ProcessingStarter;
+```
+
 `health_check_v1` schedules one job for every bookmark below the selected folder. It allows one queue attempt, one request plus five manual redirect hops, and no in-check retry. Its complete run budget is therefore six requests per job and zero model calls. Multiplication outside the safe-integer range returns `estimate_overflow`.
 
-Hides: depth-first folder lookup, descendant counting, safe arithmetic, and the profile registry.
+For durable start, Processing performs the same depth-first traversal once and uses the resulting bookmark-ID order for both preview counts and Jobs sequence numbers. `runId` is a caller-authored opaque non-empty identifier for one logical Health run. Every job receives an `inputVersion` from a private collision-free serialization of `profileId`, `snapshotId`, and `runId`, plus priority zero, a zero-based sequence, and one maximum attempt. The Jobs idempotency key separately serializes `snapshotId`, `folderId`, `profileId`, and `runId`.
 
-Allowed dependencies: shared IDs and outcomes, the public Catalog read contract, and the public Jobs `JobType` value space.
+Repeating the same selection and `runId` authors the exact same enqueue request and replays the existing batch. A new `runId` creates a new batch and new Health input version. Reusing one `runId` across overlapping selections in the same snapshot intentionally lets the same bookmark reuse its committed Health observation while each selected batch remains independently idempotent. Including `snapshotId` prevents future cross-snapshot bookmark reconciliation from reusing an obsolete Health input. Empty folders return `empty_selection` without calling Jobs.
 
-Boundary notes: Processing may read folder IDs, folder titles, node kinds, and hierarchy from typed Catalog snapshots. It never reads bookmark titles or URLs, executes SQL, enqueues Jobs, calls a network or model provider, or interprets diagnostics. A handler must honor the selected profile budget; changing a budget requires a new profile ID.
+Jobs `idempotency_conflict` maps to `run_conflict`; `storage_unavailable` maps to `queue_unavailable`; `empty_batch` maps to `empty_selection`; other typed enqueue failures become `enqueue_rejected` with the original closed code. Processing never parses Jobs diagnostics.
+
+Hides: depth-first folder lookup, descendant ID collection, safe arithmetic, profile registry, input-version encoding, Jobs request construction, and enqueue idempotency-key encoding.
+
+Allowed dependencies: shared IDs and outcomes, the public Catalog read contract, and public Jobs profile, enqueue, failure, and batch-summary types.
+
+Boundary notes: Processing may read folder IDs, folder titles, bookmark IDs, node kinds, and hierarchy from typed Catalog snapshots. It alone maps a selected scope and profile to ordered Jobs targets. It never reads bookmark titles or URLs, executes SQL, calls a network or model provider, or interprets diagnostics. Durable start calls only `JobEnqueuer.enqueue`; Local CLI code must not traverse snapshots or assemble Jobs requests. A handler must honor the selected profile budget; changing a budget requires a new profile ID.
 
 ## Jobs module
 
@@ -500,6 +550,12 @@ interface JobQueueFailure {
   readonly diagnostic?: string;
 }
 
+interface JobEnqueuer {
+  enqueue(
+    request: EnqueueBatchRequest,
+  ): Promise<Outcome<JobBatchSummary, JobQueueFailure>>;
+}
+
 interface JobQueue {
   enqueue(
     request: EnqueueBatchRequest,
@@ -532,9 +588,12 @@ interface JobRetrySchedule {
   nextRetryAt(attempt: number, failedAt: IsoDateTime): IsoDateTime;
 }
 
-interface JobIdFactory {
+interface JobEnqueueIdFactory {
   nextBatchId(): JobBatchId;
   nextJobId(): JobId;
+}
+
+interface JobIdFactory extends JobEnqueueIdFactory {
   nextLeaseToken(): JobLeaseToken;
 }
 
@@ -597,6 +656,17 @@ interface JobQueueStore {
   ): Promise<Outcome<JobProgress, JobQueueFailure>>;
 }
 
+interface JobEnqueuerDependencies {
+  readonly clock: JobClock;
+  readonly idFactory: JobEnqueueIdFactory;
+  readonly store: JobQueueStore;
+}
+
+interface JobQueueDependencies extends JobEnqueuerDependencies {
+  readonly retrySchedule: JobRetrySchedule;
+  readonly config: JobQueueConfig;
+}
+
 type JobWorkerOperation = "lease" | "succeed" | "fail";
 
 type JobWorkerStep =
@@ -642,11 +712,21 @@ interface JobWorker {
   ): Promise<Outcome<JobWorkerStep, JobWorkerFailure>>;
 }
 
+declare function createJobEnqueuer(
+  dependencies: JobEnqueuerDependencies,
+): JobEnqueuer;
+
+declare function createJobQueue(
+  dependencies: JobQueueDependencies,
+): JobQueue;
+
 declare function createJobWorker(
   queue: JobQueue,
   handlers: readonly JobHandler[],
 ): Outcome<JobWorker, JobWorkerConfigurationFailure>;
 ```
+
+`JobEnqueuer`, `JobEnqueueIdFactory`, `JobEnqueuerDependencies`, and `createJobEnqueuer` are the additive composition seams for selected-folder enqueue. The implementation reuses the queue's existing enqueue validation, canonical fingerprinting, clock, ID allocation, and store call. It does not accept lease-token allocation, lease duration, or retry scheduling because enqueue does not consume those policies. The existing `JobIdFactory` and `JobQueue` remain structurally compatible, so current consumers do not migrate.
 
 Request and ordering rules:
 
@@ -674,7 +754,7 @@ Batch-control and progress rules:
 
 Store and service boundaries:
 
-- `JobQueue` owns validation, canonical request fingerprinting, ID allocation, lease-duration calculation, retry-time calculation from the returned lease attempt, and clock reads. It delegates each mutation to one atomic store operation.
+- `JobEnqueuer` owns enqueue validation, canonical request fingerprinting, enqueue ID allocation, and its clock read. `JobQueue` adds lease-duration calculation, retry-time calculation from the returned lease attempt, and the remaining controls. Both delegate each mutation to one atomic store operation and share one private enqueue implementation.
 - The canonical request fingerprint is a deterministic serialization of declared request fields in job-array order; it excludes diagnostics and runtime timestamps. The store treats it as opaque and compares it only for equality.
 - `StoredEnqueueCommand.jobIds.length` must equal `request.jobs.length`; IDs align by array index. Port implementations reject malformed commands as `invalid_request` without partial writes.
 - `JobQueueStore` owns durable compare-and-set mechanics and expired-lease recovery but no handler policy, domain result creation, clock, randomness, or prose interpretation.
@@ -724,7 +804,7 @@ Capability brief for durable processing:
 
 ## Health module
 
-Current implementation status: the deterministic checker, Jobs handler, immutable observation, SQLite repository, safe Node target resolver, and one-request Node transport are executable. Public composition, runtime registration, history listing, and staleness remain target contracts.
+Current implementation status: the deterministic checker, Jobs handler, immutable observation, SQLite repository, safe Node target resolver, one-request Node transport, public composition, and runtime registration are executable. History listing and staleness remain target contracts.
 
 Responsibility: produce URL health observations and explainable staleness assessments.
 
@@ -962,27 +1042,7 @@ interface StalenessAssessment {
   readonly policyVersion: string;
 }
 
-interface JobQueueDependencies {
-  readonly clock: JobClock;
-  readonly retrySchedule: JobRetrySchedule;
-  readonly idFactory: JobIdFactory;
-  readonly store: JobQueueStore;
-  readonly config: JobQueueConfig;
-}
-
-declare function createJobQueue(
-  dependencies: JobQueueDependencies,
-): JobQueue;
-
-declare function createJobWorker(
-  queue: JobQueue,
-  handlers: readonly JobHandler[],
-): Outcome<JobWorker, JobWorkerConfigurationFailure>;
 ```
-
-`JobQueueDependencies`, `createJobQueue`, and `createJobWorker` are public
-composition seams. Their existing Jobs implementations are promoted without
-changing queue or worker behavior.
 
 Observation and idempotency rules:
 
@@ -1393,11 +1453,21 @@ Successful stdout is one JSON line matching `ProcessingPreview` with `ok: true`.
 
 Preview failure stderr is one JSON line with `ok: false` and one of `invalid_arguments`, `storage_unavailable`, `snapshot_invalid`, `snapshot_not_found`, `folder_not_found`, `estimate_overflow`, or `unexpected_failure`. Exit codes are `2`, `4`, `5`, `6`, `7`, `8`, and `1` respectively. The session closes before output on every opened path.
 
+The selected-folder enqueue command is:
+
+```text
+npm run --silent enqueue -- --database <bookmarks.sqlite> --snapshot <snapshot-id> --folder <folder-id> --run <run-id>
+```
+
+The command selects `health_check_v1`; `run-id` is an opaque non-empty caller-authored identifier. Successful stdout is one JSON line containing `ok: true`, the exact `runId`, `ProcessingStart.preview`, and `ProcessingStart.batch`. The command does not run a worker or make a network call.
+
+Enqueue failure stderr is one JSON line with `ok: false` and one of `invalid_arguments`, `storage_unavailable`, `snapshot_invalid`, `snapshot_not_found`, `folder_not_found`, `estimate_overflow`, `empty_selection`, `run_conflict`, `enqueue_rejected`, or `unexpected_failure`. Exit codes are `2`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, and `1` respectively. `queue_unavailable` maps to `storage_unavailable`. The multi-module database session closes before output on every opened path.
+
 Hides: argument parsing, filesystem calls, wall-clock access, JSON serialization, stream writes, and process exit-code assignment.
 
 Allowed dependencies: Node filesystem/process APIs and public Orchestrator, Catalog, Processing, Jobs, Health, Node-runtime, Chrome HTML, and SQLite session contracts.
 
-Boundary notes: the CLI is the composition root. Its target Health worker session opens the multi-module database session, builds Catalog and Jobs services from public factories, builds the checker from `NodeRuntimePorts`, registers exactly one Health handler, and exposes only the resulting `JobWorker` plus `close`. The safe resolver, transport options, repositories, stores, checker, and handler array stay inside composition. The CLI may select concrete implementations but may not parse HTML, validate Catalog data, execute SQL, calculate processing budgets, or interpret diagnostics. Import prints no bookmark contents. Inspection and preview may print folder IDs and titles plus aggregate counts, but never bookmark titles, URLs, source IDs, dates other than snapshot capture time, or diagnostics. It never mutates Chrome.
+Boundary notes: the CLI is the composition root. Its Health worker session opens the multi-module database session, builds Catalog and Jobs services from public factories, builds the checker from `NodeRuntimePorts`, registers exactly one Health handler, and exposes only the resulting `JobWorker` plus `close`. The enqueue command separately composes Catalog, `JobEnqueuer`, and `ProcessingStarter`; it does not construct worker-only lease or retry policy. The safe resolver, transport options, repositories, stores, checker, handler array, and Jobs request encoding stay inside their owners. The CLI may select concrete implementations but may not parse HTML, validate Catalog data, traverse snapshots, assemble Jobs requests, execute SQL, calculate processing budgets, or interpret diagnostics. Import prints no bookmark contents. Inspection, preview, and enqueue may print folder IDs and titles plus aggregate counts, but never bookmark titles, URLs, source IDs, dates other than snapshot capture or typed batch times, or diagnostics. It never mutates Chrome.
 
 ## Web UI
 
@@ -1428,6 +1498,7 @@ To add a new provider, source, extractor, or review policy:
 - Sharing mutable global state between workers.
 - Allowing UI, connector, or adapters to own business policy.
 - Letting the orchestrator parse HTML, SQL rows, provider responses, or Chrome messages.
+- Letting CLI or orchestrator code traverse Catalog snapshots or assemble `EnqueueBatchRequest`; Processing owns selected-scope work authorship.
 - Reading or writing SQLite directly from the Chrome extension.
 - Treating provider prose, exceptions, traces, or logs as semantic data.
 - Repairing malformed model meaning downstream. Repair the prompt, schema, provider parser, or tests.
@@ -1493,6 +1564,18 @@ To add a new provider, source, extractor, or review policy:
 - Local composition rule: the first registry contains only `health_check`. It uses `health_check_v1` with one job attempt, one initial request, at most five redirects, and zero model calls. A later multi-attempt profile must add an explicit retry-policy decision before registration.
 - Explicitly out of scope: running a job from a command, polling, selected-folder enqueue, public internet proof, runtime configuration flags, rendered browsing, model calls, deletion, Chrome writes, and migrating existing CLI commands to the broader session.
 
+## Capability brief: selected-folder durable enqueue
+
+- Behavior: accept one database path, snapshot ID, folder ID, and opaque run ID; load the immutable Catalog snapshot; author one ordered `health_check_v1` job per descendant bookmark; atomically enqueue the batch; return the existing bounded preview plus typed batch summary; and close without executing work.
+- Placement: extend Processing because selected-scope traversal, profile expansion, sequence order, run identity, and budget agreement are one responsibility. Jobs remains the sole enqueue implementation and SQLite remains the sole persistence mechanism. The Local CLI only parses arguments, wires public contracts, maps typed outcomes, and owns lifecycle.
+- Jobs contract: the structurally narrow `JobEnqueueIdFactory`, `JobEnqueuer`, `JobEnqueuerDependencies`, and `createJobEnqueuer` reuse the queue's enqueue implementation without requiring lease-token, lease-duration, or retry-policy dependencies. Existing `JobIdFactory`, `JobQueue`, worker composition, and consumers remain compatible.
+- Processing contract: `ProcessingRunId`, `ProcessingStartRequest`, `ProcessingStart`, `ProcessingStartFailure`, `ProcessingStarterDependencies`, `ProcessingStarter`, and `createProcessingStarter` extend the existing preview surface without changing preview behavior or its consumer.
+- Orchestrator wiring: the Local CLI opens `BookmarkCleanDatabaseSession`, builds Catalog, gets clock and IDs from `NodeRuntimePorts`, builds only `JobEnqueuer`, builds `ProcessingStarter`, calls `start` once, and closes in `finally`. It does not expose the queue/store or reuse `HealthWorkerSession`.
+- Idempotency: Processing privately serializes `(snapshotId, folderId, profileId, runId)` for Jobs batch idempotency and separately serializes `(profileId, snapshotId, runId)` for every target input version. Same tuple means replay; a new run ID means a new batch and Health input version. Snapshot immutability and versioned profiles keep a replay's authored request stable, while snapshot identity prevents stale reuse after future bookmark reconciliation.
+- Consumers and migration: the Jobs enqueue-only seam, Processing starter, real SQLite composition proof, direct Local CLI command, and package route are complete. The package command is the first user-facing consumer.
+- Explicitly out of scope: worker execution, polling, live network calls, production Health timeout or lease values, bookmark URLs or titles in output, SQL changes, new Jobs states, multi-attempt profiles, scheduling recurring runs, staleness decisions, deletion, and Chrome mutation.
+- Provisional items: none. Callers supply the required run ID. The enqueue-only Jobs seam removes the otherwise unresolved need for unused worker policy values.
+
 ## Contract changelog
 
 - 2026-07-12: initial target module map created; no runtime consumers exist.
@@ -1520,3 +1603,8 @@ To add a new provider, source, extractor, or review policy:
 - 2026-07-15: proved certificate-validated HTTPS against a controlled `health.test` fixture through the unchanged production transport; child-only trust did not widen the Node public contract.
 - 2026-07-15: promoted the existing queue and one-step worker factories through the exact Jobs public contract without changing service behavior.
 - 2026-07-15: composed the public SQLite, Node, Catalog, Jobs, and Health seams into a Local CLI-owned session with one private Health handler and caller-supplied operating configuration.
+- 2026-07-15: placed selected-folder durable enqueue in Processing, added target enqueue-only Jobs seams, and fixed caller-authored run identity so Local CLI composition needs no worker policy values; future consumers are `ProcessingStarter` and the `enqueue` command.
+- 2026-07-15: implemented the additive enqueue-only Jobs contract through one shared enqueue operation; `ProcessingStarter` is its first planned consumer and existing queue consumers required no migration.
+- 2026-07-15: implemented the type-only Processing durable-start contract; the E3 starter factory consumes it next while the current planner runtime requires no migration.
+- 2026-07-15: implemented `createProcessingStarter` with shared depth-first traversal, collision-free private identity encodings, and closed Jobs failure mapping; existing preview consumers required no migration.
+- 2026-07-15: completed the real SQLite enqueue proof and Local CLI `enqueue` command with exact replay, fixed process output, and no worker or network execution.
