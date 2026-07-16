@@ -87,6 +87,10 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+function isSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
+}
+
 function isCanonicalUtc(value: unknown): value is IsoDateTime {
   if (typeof value !== "string" || !CANONICAL_UTC.test(value)) {
     return false;
@@ -105,7 +109,7 @@ function validateCompletionCommand(
     !isRecord(input) ||
     !hasExactKeys(input, COMPLETION_COMMAND_KEYS) ||
     !isNonEmptyString(input.token) ||
-    !Number.isSafeInteger(input.expectedAttempt) ||
+    !isSafeInteger(input.expectedAttempt) ||
     input.expectedAttempt <= 0 ||
     !isCanonicalUtc(input.completedAt) ||
     !isRecord(input.result) ||
@@ -123,7 +127,7 @@ function validateFailureCommand(input: unknown): input is StoredFailureCommand {
     !isRecord(input) ||
     !hasExactKeys(input, FAILURE_COMMAND_KEYS, ["retryAt"]) ||
     !isNonEmptyString(input.token) ||
-    !Number.isSafeInteger(input.expectedAttempt) ||
+    !isSafeInteger(input.expectedAttempt) ||
     input.expectedAttempt <= 0 ||
     !isCanonicalUtc(input.failedAt) ||
     !isRecord(input.failure) ||
@@ -216,9 +220,9 @@ function readLeaseRow(
   if (
     !isNonEmptyString(row.id) ||
     !isJobState(row.state) ||
-    !Number.isSafeInteger(row.attempt) ||
+    !isSafeInteger(row.attempt) ||
     row.attempt < 0 ||
-    !Number.isSafeInteger(row.max_attempts) ||
+    !isSafeInteger(row.max_attempts) ||
     row.max_attempts <= 0 ||
     !isNonEmptyString(row.lease_token) ||
     !isCanonicalUtc(row.lease_expires_at)

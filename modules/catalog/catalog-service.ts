@@ -50,6 +50,11 @@ interface MutableBookmarkRecord extends MutableRecordBase {
   dateLastUsed?: IsoDateTime;
 }
 
+interface BuildFrame {
+  readonly source: SourceBookmarkNode;
+  readonly target: BookmarkRecord[];
+}
+
 declare const require: (specifier: "./validate-snapshot.ts") => unknown;
 declare const module: {
   exports: {
@@ -79,35 +84,46 @@ function copyBase(
   return record;
 }
 
-function buildRecord(
-  source: SourceBookmarkNode,
+function buildRecords(
+  sources: readonly SourceBookmarkNode[],
   idFactory: CatalogIdFactory,
   counts: Counts,
-): BookmarkRecord {
-  const id = idFactory.nextBookmarkId();
-  if (source.kind === "folder") {
-    counts.folderCount += 1;
-    const children = source.children.map((child) =>
-      buildRecord(child, idFactory, counts),
-    );
-    const record: MutableFolderRecord = {
-      ...copyBase(source, id),
-      kind: "folder",
-      children,
-    };
-    return record;
+): BookmarkRecord[] {
+  const records: BookmarkRecord[] = [];
+  const frames: BuildFrame[] = [];
+  for (let index = sources.length - 1; index >= 0; index -= 1) {
+    frames.push({ source: sources[index], target: records });
   }
 
-  counts.bookmarkCount += 1;
-  const record: MutableBookmarkRecord = {
-    ...copyBase(source, id),
-    kind: "bookmark",
-    url: source.url,
-  };
-  if (source.dateLastUsed !== undefined) {
-    record.dateLastUsed = source.dateLastUsed;
+  while (frames.length > 0) {
+    const { source, target } = frames.pop() as BuildFrame;
+    const id = idFactory.nextBookmarkId();
+    if (source.kind === "folder") {
+      counts.folderCount += 1;
+      const children: BookmarkRecord[] = [];
+      const record: MutableFolderRecord = {
+        ...copyBase(source, id),
+        kind: "folder",
+        children,
+      };
+      target.push(record);
+      for (let index = source.children.length - 1; index >= 0; index -= 1) {
+        frames.push({ source: source.children[index], target: children });
+      }
+      continue;
+    }
+
+    counts.bookmarkCount += 1;
+    const record: MutableBookmarkRecord = {
+      ...copyBase(source, id),
+      kind: "bookmark",
+      url: source.url,
+    };
+    if (source.dateLastUsed !== undefined) record.dateLastUsed = source.dateLastUsed;
+    target.push(record);
   }
-  return record;
+
+  return records;
 }
 
 function buildSnapshot(
@@ -116,7 +132,7 @@ function buildSnapshot(
 ): BookmarkSnapshot {
   const id = idFactory.nextSnapshotId();
   const counts: Counts = { folderCount: 0, bookmarkCount: 0 };
-  const roots = input.roots.map((root) => buildRecord(root, idFactory, counts));
+  const roots = buildRecords(input.roots, idFactory, counts);
   return {
     id,
     source: input.source,

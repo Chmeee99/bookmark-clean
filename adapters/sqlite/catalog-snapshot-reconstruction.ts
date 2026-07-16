@@ -1,9 +1,9 @@
 import type {
-  BookmarkFolderRecord,
   BookmarkLinkRecord,
   BookmarkRecord,
   BookmarkSnapshot,
   BookmarkSource,
+  CatalogResourceLimits,
   CatalogStorageFailure,
 } from "../../modules/catalog/public.js";
 import type {
@@ -46,6 +46,35 @@ interface MutableRecordBase {
   dateAdded?: IsoDateTime;
   dateModified?: IsoDateTime;
 }
+
+interface MutableFolderRecord extends MutableRecordBase {
+  kind: "folder";
+  children: BookmarkRecord[];
+}
+
+interface CatalogRuntime {
+  readonly CATALOG_RESOURCE_LIMITS: CatalogResourceLimits;
+}
+
+interface AssembleEnterFrame {
+  readonly kind: "enter";
+  readonly node: StoredNode;
+  readonly target: BookmarkRecord[];
+  readonly depth: number;
+}
+
+interface AssembleExitFrame {
+  readonly kind: "exit";
+  readonly nodeId: string;
+}
+
+type AssembleFrame = AssembleEnterFrame | AssembleExitFrame;
+
+declare const require: (specifier: "../../modules/catalog/public.ts") => unknown;
+const { CATALOG_RESOURCE_LIMITS } = require(
+  "../../modules/catalog/public.ts",
+) as CatalogRuntime;
+
 function storedSnapshotInvalid<T>(): Outcome<T, CatalogStorageFailure> {
   return { ok: false, error: { code: "stored_snapshot_invalid" } };
 }
@@ -179,40 +208,60 @@ function bookmarkRecord(node: StoredNode): BookmarkLinkRecord {
       : { dateLastUsed: node.dateLastUsed }),
   };
 }
-function assembleRecord(
-  node: StoredNode,
+function assembleRecords(
+  roots: readonly StoredNode[],
   childrenByParent: Map<string | null, StoredNode[]>,
   visited: Set<string>,
   active: Set<string>,
-): BookmarkRecord | undefined {
-  if (active.has(node.id) || visited.has(node.id)) {
-    return undefined;
+): BookmarkRecord[] | undefined {
+  const records: BookmarkRecord[] = [];
+  const frames: AssembleFrame[] = [];
+  for (let index = roots.length - 1; index >= 0; index -= 1) {
+    frames.push({ kind: "enter", node: roots[index], target: records, depth: 1 });
   }
-  active.add(node.id);
-  visited.add(node.id);
 
-  try {
+  while (frames.length > 0) {
+    const frame = frames.pop() as AssembleFrame;
+    if (frame.kind === "exit") {
+      active.delete(frame.nodeId);
+      continue;
+    }
+
+    const { node, target, depth } = frame;
+    if (
+      depth > CATALOG_RESOURCE_LIMITS.maximumDepth ||
+      active.has(node.id) ||
+      visited.has(node.id)
+    ) {
+      return undefined;
+    }
+    visited.add(node.id);
     if (node.kind === "bookmark") {
-      return bookmarkRecord(node);
+      target.push(bookmarkRecord(node));
+      continue;
     }
 
     const children: BookmarkRecord[] = [];
-    for (const child of childrenByParent.get(node.id) ?? []) {
-      const assembled = assembleRecord(child, childrenByParent, visited, active);
-      if (assembled === undefined) {
-        return undefined;
-      }
-      children.push(assembled);
-    }
-    const record: BookmarkFolderRecord = {
+    const record: MutableFolderRecord = {
       ...baseRecord(node),
       kind: "folder",
       children,
     };
-    return record;
-  } finally {
-    active.delete(node.id);
+    target.push(record);
+    active.add(node.id);
+    frames.push({ kind: "exit", nodeId: node.id });
+    const storedChildren = childrenByParent.get(node.id) ?? [];
+    for (let index = storedChildren.length - 1; index >= 0; index -= 1) {
+      frames.push({
+        kind: "enter",
+        node: storedChildren[index],
+        target: children,
+        depth: depth + 1,
+      });
+    }
   }
+
+  return records;
 }
 function reconstructCatalogBookmark(
   row: CatalogSqliteRow,
@@ -252,6 +301,9 @@ function reconstructCatalogSnapshot(
     sourceIds.add(node.sourceId);
     nodes.push(node);
   }
+  if (nodes.length > CATALOG_RESOURCE_LIMITS.maximumNodes) {
+    return storedSnapshotInvalid();
+  }
   const nodesById = new Map<string, StoredNode>();
   for (const node of nodes) {
     nodesById.set(node.id, node);
@@ -283,15 +335,8 @@ function reconstructCatalogSnapshot(
   }
   const visited = new Set<string>();
   const active = new Set<string>();
-  const assembledRoots: BookmarkRecord[] = [];
-  for (const root of roots) {
-    const assembled = assembleRecord(root, childrenByParent, visited, active);
-    if (assembled === undefined) {
-      return storedSnapshotInvalid();
-    }
-    assembledRoots.push(assembled);
-  }
-  if (visited.size !== nodes.length) {
+  const assembledRoots = assembleRecords(roots, childrenByParent, visited, active);
+  if (assembledRoots === undefined || visited.size !== nodes.length) {
     return storedSnapshotInvalid();
   }
   return {

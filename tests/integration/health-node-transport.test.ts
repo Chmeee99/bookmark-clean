@@ -10,7 +10,9 @@ interface FixtureResponse {
     statusCode: number,
     headers?: Readonly<Record<string, string | readonly string[]>>,
   ): void;
+  write(body: string): boolean;
   end(body?: string): void;
+  on(event: "close", listener: () => void): this;
 }
 interface FixtureSocket { end(data?: string): void; destroy(): void; }
 interface ListenerFixture { readonly port: number; close(): Promise<void>; }
@@ -134,6 +136,33 @@ test("socket exchange receives only the deadline remaining after resolution", as
   } finally { await fixture.close(); }
 });
 
+test("enforces one absolute deadline while the response remains active", async () => {
+  const fixture = await startHttpFixture((_incoming, response) => {
+    response.writeHead(200);
+    let writes = 0;
+    const interval = setInterval(() => {
+      response.write("x");
+      writes += 1;
+      if (writes === 12) {
+        clearInterval(interval);
+        response.end();
+      }
+    }, 20);
+    response.on("close", () => clearInterval(interval));
+  });
+  try {
+    const startedAt = performance.now();
+    const result = await loopbackTransport().request(request(
+      `http://127.0.0.1:${fixture.port}/slow-drip`,
+      { timeoutMs: 80 },
+    ));
+    const elapsedMs = performance.now() - startedAt;
+    assert(!result.ok && result.error.code === "timeout", "Active response escaped total deadline");
+    assert(result.error.durationMs < 200, "Reported timeout exceeded total deadline tolerance");
+    assert(elapsedMs < 200, "Wall time exceeded total deadline tolerance");
+  } finally { await fixture.close(); }
+});
+
 test("returns selected response facts through one pinned request", async () => {
   const seen: Array<{ readonly url?: string; readonly host?: string }> = [];
   const fixture = await startHttpFixture((incoming, response) => {
@@ -249,4 +278,21 @@ test("resolver rejection returns unsupported_url without transport fallback", as
     !malformedResult.ok && malformedResult.error.code === "unsupported_url",
     "Malformed approved target reached request execution",
   );
+});
+
+test("propagates structured resolver facts and contains thrown resolver failures", async () => {
+  for (const code of ["dns_failure", "unknown_transport"] as const) {
+    const transport = createNodeHealthTransport({ resolver: {
+      async resolve() { return { ok: false, error: { code } }; },
+    } });
+    const result = await transport.request(request("http://example.com"));
+    assert(!result.ok && result.error.code === code, `${code} resolver fact was discarded`);
+  }
+
+  const thrown = createNodeHealthTransport({ resolver: {
+    async resolve(): Promise<never> { throw new Error("unsupported_url in non-semantic prose"); },
+  } });
+  const result = await thrown.request(request("http://example.com"));
+  assert(!result.ok && result.error.code === "unknown_transport",
+    "Thrown resolver prose acquired URL semantics");
 });

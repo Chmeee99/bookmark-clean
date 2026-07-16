@@ -33,6 +33,10 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+function isSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
+}
+
 function changedExactlyOnce(result: unknown): boolean {
   if (!isRecord(result)) {
     return false;
@@ -49,9 +53,9 @@ function requireChangedExactlyOnce(result: unknown): void {
 function readExpiredLease(row: SqliteRow): ExpiredLease {
   if (
     !isNonEmptyString(row.id) ||
-    !Number.isSafeInteger(row.attempt) ||
+    !isSafeInteger(row.attempt) ||
     !isNonEmptyString(row.lease_token) ||
-    !Number.isSafeInteger(row.max_attempts) ||
+    !isSafeInteger(row.max_attempts) ||
     (row.batch_state !== "active" &&
       row.batch_state !== "paused" &&
       row.batch_state !== "cancelled")

@@ -41,11 +41,16 @@ interface CatalogStoreApi {
   ): CatalogSnapshotStore;
 }
 
+interface PrivateDatabaseFileApi {
+  preparePrivateDatabaseFile(databasePath: string): boolean;
+}
+
 declare const require: (
   specifier:
     | "node:sqlite"
     | "./catalog-schema.ts"
-    | "./catalog-snapshot-store.ts",
+    | "./catalog-snapshot-store.ts"
+    | "./private-database-file.ts",
 ) => unknown;
 declare const module: {
   exports: { openCatalogDatabase: typeof openCatalogDatabase };
@@ -58,6 +63,9 @@ const { migrateCatalogSchema } = require(
 const { createSqliteCatalogSnapshotStore } = require(
   "./catalog-snapshot-store.ts",
 ) as CatalogStoreApi;
+const { preparePrivateDatabaseFile } = require(
+  "./private-database-file.ts",
+) as PrivateDatabaseFileApi;
 
 function unavailable(): Outcome<never, CatalogDatabaseFailure> {
   return { ok: false, error: { code: "storage_unavailable" } };
@@ -77,14 +85,16 @@ function openCatalogDatabase(
 ): Outcome<CatalogDatabaseSession, CatalogDatabaseFailure> {
   let database: SqliteDatabase | undefined;
   try {
-    database = new DatabaseSync(databasePath);
-    const migrated = migrateCatalogSchema(database);
+    if (!preparePrivateDatabaseFile(databasePath)) return unavailable();
+    const openedDatabase = new DatabaseSync(databasePath);
+    database = openedDatabase;
+    const migrated = migrateCatalogSchema(openedDatabase);
     if (!migrated.ok) {
       closeBestEffort(database);
       return unavailable();
     }
 
-    const store = createSqliteCatalogSnapshotStore(database);
+    const store = createSqliteCatalogSnapshotStore(openedDatabase);
     let closed = false;
     return {
       ok: true,
@@ -92,7 +102,7 @@ function openCatalogDatabase(
         store,
         close() {
           if (closed) return;
-          database.close();
+          openedDatabase.close();
           closed = true;
         },
       },

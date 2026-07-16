@@ -2,6 +2,7 @@ import type { DefaultTreeAdapterMap } from "parse5";
 import type { IsoDateTime, Outcome } from "../../core/contracts/public.js";
 import type {
   BookmarkSnapshotInput,
+  CatalogResourceLimits,
   SourceBookmarkFolder,
   SourceBookmarkNode,
 } from "../../modules/catalog/public.js";
@@ -12,12 +13,47 @@ import type {
   ChromeHtmlImportRequest,
 } from "./public.js";
 
-declare const require: (specifier: "parse5") => unknown;
+interface CatalogRuntime {
+  readonly CATALOG_RESOURCE_LIMITS: CatalogResourceLimits;
+}
+
+interface ChromeHtmlResourceLimitsRuntime {
+  readonly CHROME_HTML_MAX_INPUT_BYTES: 16_777_216;
+}
+
+interface BufferRuntime {
+  readonly Buffer: {
+    byteLength(value: string, encoding: "utf8"): number;
+  };
+}
+
+interface ParseEntryFrame {
+  readonly list: HtmlElement;
+  readonly entry: HtmlElement;
+  readonly path: readonly number[];
+  readonly depth: number;
+  readonly target: SourceBookmarkNode[];
+}
+
+declare const require: (
+  specifier:
+    | "node:buffer"
+    | "parse5"
+    | "../../modules/catalog/public.ts"
+    | "./chrome-html-resource-limits.ts",
+) => unknown;
 declare const module: {
   exports: { readonly parseBookmarksHtml: typeof parseBookmarksHtml };
 };
 
+const { Buffer } = require("node:buffer") as BufferRuntime;
 const { parse } = require("parse5") as Pick<typeof import("parse5"), "parse">;
+const { CATALOG_RESOURCE_LIMITS } = require(
+  "../../modules/catalog/public.ts",
+) as CatalogRuntime;
+const { CHROME_HTML_MAX_INPUT_BYTES } = require(
+  "./chrome-html-resource-limits.ts",
+) as ChromeHtmlResourceLimitsRuntime;
 
 type HtmlNode = DefaultTreeAdapterMap["node"];
 type HtmlElement = DefaultTreeAdapterMap["element"];
@@ -75,18 +111,14 @@ function failure(
   return { ok: false, error: { code, path: [...path], field } };
 }
 
-function findRootList(node: HtmlNode, nestedInList = false): HtmlElement | undefined {
-  if (tagIs(node, "dl")) {
-    if (!nestedInList) {
-      return node;
-    }
-    nestedInList = true;
-  }
-
-  for (const child of childNodes(node)) {
-    const root = findRootList(child, nestedInList);
-    if (root !== undefined) {
-      return root;
+function findRootList(node: HtmlNode): HtmlElement | undefined {
+  const pending: HtmlNode[] = [node];
+  while (pending.length > 0) {
+    const current = pending.pop() as HtmlNode;
+    if (tagIs(current, "dl")) return current;
+    const children = childNodes(current);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push(children[index]);
     }
   }
   return undefined;
@@ -94,16 +126,18 @@ function findRootList(node: HtmlNode, nestedInList = false): HtmlElement | undef
 
 function textContent(node: HtmlNode): string {
   const parts: string[] = [];
-  function collect(current: HtmlNode): void {
+  const pending: HtmlNode[] = [node];
+  while (pending.length > 0) {
+    const current = pending.pop() as HtmlNode;
     if (isTextNode(current)) {
       parts.push(current.value);
-      return;
+      continue;
     }
-    for (const child of childNodes(current)) {
-      collect(child);
+    const children = childNodes(current);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push(children[index]);
     }
   }
-  collect(node);
   return parts.join("");
 }
 
@@ -184,84 +218,110 @@ function folderChildList(
   return undefined;
 }
 
-function parseList(
+function semanticEntries(
   list: HtmlElement,
-  pathPrefix: readonly number[],
-): Outcome<SourceBookmarkNode[], ChromeHtmlImportFailure> {
-  const entries = childNodes(list).filter(
+): readonly HtmlElement[] {
+  return childNodes(list).filter(
     (node): node is HtmlElement => tagIs(node, "dt"),
   );
-  const nodes: SourceBookmarkNode[] = [];
-
-  for (let index = 0; index < entries.length; index += 1) {
-    const path = [...pathPrefix, index];
-    const parsed = parseEntry(list, entries[index], path);
-    if (!parsed.ok) {
-      return parsed;
-    }
-    nodes.push(parsed.value);
-  }
-  return { ok: true, value: nodes };
 }
 
-function parseEntry(
+function pushEntryFrames(
   list: HtmlElement,
-  entry: HtmlElement,
-  path: readonly number[],
-): Outcome<SourceBookmarkNode, ChromeHtmlImportFailure> {
-  const leads = directSemanticLeads(entry);
-  if (leads.length !== 1) {
-    return failure("invalid_entry", path, "entry");
+  pathPrefix: readonly number[],
+  depth: number,
+  target: SourceBookmarkNode[],
+  frames: ParseEntryFrame[],
+): void {
+  const entries = semanticEntries(list);
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    frames.push({
+      list,
+      entry: entries[index],
+      path: [...pathPrefix, index],
+      depth,
+      target,
+    });
   }
+}
 
-  const lead = leads[0];
-  const base = {
-    sourceId: `html:${path.join("/")}`,
-    title: textContent(lead),
-  };
+function parseSemanticTree(
+  rootList: HtmlElement,
+): Outcome<SourceBookmarkNode[], ChromeHtmlImportFailure> {
+  const roots: SourceBookmarkNode[] = [];
+  const frames: ParseEntryFrame[] = [];
+  let nodeCount = 0;
+  pushEntryFrames(rootList, [], 1, roots, frames);
 
-  if (lead.tagName === "h3") {
-    const nestedList = folderChildList(list, entry);
-    if (nestedList === undefined) {
+  while (frames.length > 0) {
+    const { list, entry, path, depth, target } = frames.pop() as ParseEntryFrame;
+    const leads = directSemanticLeads(entry);
+    if (leads.length !== 1) return failure("invalid_entry", path, "entry");
+
+    const lead = leads[0];
+    const nestedList = lead.tagName === "h3"
+      ? folderChildList(list, entry)
+      : undefined;
+    if (lead.tagName === "h3" && nestedList === undefined) {
       return failure("invalid_entry", path, "entry");
     }
-    const dates = timestampFields(lead, path, FOLDER_TIMESTAMP_SPECS);
-    if (!dates.ok) {
-      return dates;
+    if (depth > CATALOG_RESOURCE_LIMITS.maximumDepth) {
+      return failure("depth_limit_exceeded", path, "entry");
     }
-    const children = parseList(nestedList, path);
-    if (!children.ok) {
-      return children;
+    nodeCount += 1;
+    if (nodeCount > CATALOG_RESOURCE_LIMITS.maximumNodes) {
+      return failure("node_limit_exceeded", path, "entry");
     }
-    const folder: SourceBookmarkFolder = {
-      ...base,
-      kind: "folder",
-      ...dates.value,
-      children: children.value,
+
+    const base = {
+      sourceId: `html:${path.join("/")}`,
+      title: textContent(lead),
     };
-    return { ok: true, value: folder };
+
+    if (lead.tagName === "h3") {
+      const children: SourceBookmarkNode[] = [];
+      const dates = timestampFields(lead, path, FOLDER_TIMESTAMP_SPECS);
+      if (!dates.ok) return dates;
+      const folder: SourceBookmarkFolder = {
+        ...base,
+        kind: "folder",
+        ...dates.value,
+        children,
+      };
+      target.push(folder);
+      pushEntryFrames(
+        nestedList as HtmlElement,
+        path,
+        depth + 1,
+        children,
+        frames,
+      );
+      continue;
+    }
+
+    const href = attributeValue(lead, "href");
+    if (href === undefined || href.length === 0) {
+      return failure("invalid_entry", path, "entry");
+    }
+    const dates = timestampFields(lead, path, BOOKMARK_TIMESTAMP_SPECS);
+    if (!dates.ok) return dates;
+    target.push({
+      ...base,
+      kind: "bookmark",
+      ...dates.value,
+      url: href,
+    });
   }
 
-  const href = attributeValue(lead, "href");
-  if (href === undefined || href.length === 0) {
-    return failure("invalid_entry", path, "entry");
-  }
-  const dates = timestampFields(lead, path, BOOKMARK_TIMESTAMP_SPECS);
-  if (!dates.ok) {
-    return dates;
-  }
-  const bookmark: SourceBookmarkNode = {
-    ...base,
-    kind: "bookmark",
-    ...dates.value,
-    url: href,
-  };
-  return { ok: true, value: bookmark };
+  return { ok: true, value: roots };
 }
 
 function parseBookmarksHtml(
   request: ChromeHtmlImportRequest,
 ): Outcome<BookmarkSnapshotInput, ChromeHtmlImportFailure> {
+  if (Buffer.byteLength(request.html, "utf8") > CHROME_HTML_MAX_INPUT_BYTES) {
+    return failure("input_too_large", [], "html");
+  }
   if (request.html.trim().length === 0) {
     return failure("empty_input", [], "html");
   }
@@ -272,10 +332,8 @@ function parseBookmarksHtml(
     return failure("missing_root_list", [], "html");
   }
 
-  const roots = parseList(rootList, []);
-  if (!roots.ok) {
-    return roots;
-  }
+  const roots = parseSemanticTree(rootList);
+  if (!roots.ok) return roots;
   return {
     ok: true,
     value: {

@@ -108,6 +108,46 @@ function snapshot(): BookmarkSnapshot {
   };
 }
 
+function deepSelectionSnapshot(folderDepth: number): BookmarkSnapshot {
+  let node: BookmarkFolderRecord | BookmarkLinkRecord = bookmark("bookmark:deep-link");
+  for (let level = folderDepth; level >= 1; level -= 1) {
+    node = folder(
+      level === 1 ? "bookmark:deep-root" : `bookmark:deep-folder-${level}`,
+      `Folder ${level}`,
+      [node],
+    );
+  }
+  return {
+    id: SNAPSHOT_ID,
+    source: "chrome_html",
+    capturedAt: CAPTURED_AT,
+    roots: [node],
+    rootCount: 1,
+    folderCount: folderDepth,
+    bookmarkCount: 1,
+  };
+}
+
+function wideSelectionSnapshot(bookmarkCount: number): BookmarkSnapshot {
+  const root = folder(
+    "bookmark:wide-root",
+    "Wide Root",
+    Array.from(
+      { length: bookmarkCount },
+      (_, index) => bookmark(`bookmark:wide-${index}`),
+    ),
+  );
+  return {
+    id: SNAPSHOT_ID,
+    source: "chrome_html",
+    capturedAt: CAPTURED_AT,
+    roots: [root],
+    rootCount: 1,
+    folderCount: 1,
+    bookmarkCount,
+  };
+}
+
 function request(folderId = "bookmark:root"): ProcessingPreviewRequest {
   return {
     snapshotId: SNAPSHOT_ID,
@@ -471,6 +511,52 @@ test("typed Catalog read failures map without diagnostics", async () => {
     );
     assert(!result.ok, "Catalog failure passed");
     assertJsonEqual(result.error, { code: expected }, "Catalog failure leaked fields");
+  }
+});
+
+test("Processing accepts the inclusive depth and node boundaries", async () => {
+  const deep = deepSelectionSnapshot(255);
+  let enqueues = 0;
+  const starter = createProcessingStarter({
+    catalog: catalogReturning({ ok: true, value: deep }),
+    jobs: jobsReturning(
+      { ok: true, value: { ...BATCH_SUMMARY, totalCount: 1 } },
+      () => { enqueues += 1; },
+    ),
+  });
+  const started = await starter.start(startRequest("bookmark:deep-root"));
+  assert(started.ok, "Depth 256 selection should start");
+  assertEqual(started.value.preview.bookmarkCount, 1, "Deep selection count changed");
+  assertEqual(enqueues, 1, "Deep selection did not enqueue once");
+
+  const wide = await preview(
+    createProcessingPlanner(
+      catalogReturning({ ok: true, value: wideSelectionSnapshot(19_999) }),
+    ),
+    request("bookmark:wide-root"),
+  );
+  assert(wide.ok, "20,000-node snapshot should preview");
+  assertEqual(wide.value.bookmarkCount, 19_999, "Wide selection count changed");
+});
+
+test("Processing rejects over-budget Catalog results before Jobs", async () => {
+  for (const source of [
+    deepSelectionSnapshot(256),
+    wideSelectionSnapshot(20_000),
+  ]) {
+    let enqueues = 0;
+    const starter = createProcessingStarter({
+      catalog: catalogReturning({ ok: true, value: source }),
+      jobs: jobsReturning(
+        { ok: true, value: BATCH_SUMMARY },
+        () => { enqueues += 1; },
+      ),
+    });
+    const folderId = source.roots[0]?.id as BookmarkId;
+    const result = await starter.start(startRequest(folderId));
+    assert(!result.ok, "Over-budget selection started");
+    assertJsonEqual(result.error, { code: "snapshot_invalid" }, "Bound failure changed");
+    assertEqual(enqueues, 0, "Over-budget selection reached Jobs");
   }
 });
 

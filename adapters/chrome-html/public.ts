@@ -15,11 +15,17 @@ export interface ChromeHtmlImportRequest {
   readonly capturedAt: IsoDateTime;
 }
 
+export declare const CHROME_HTML_MAX_INPUT_BYTES: 16_777_216;
+
 export type ChromeHtmlImportFailureCode =
   | "empty_input"
   | "missing_root_list"
   | "invalid_entry"
-  | "invalid_timestamp";
+  | "invalid_timestamp"
+  | "invalid_encoding"
+  | "input_too_large"
+  | "node_limit_exceeded"
+  | "depth_limit_exceeded";
 
 export type ChromeHtmlImportFailureField =
   | "html"
@@ -43,13 +49,30 @@ interface ChromeHtmlRuntime {
   parseBookmarksHtml: typeof parseBookmarksHtml;
 }
 
-declare const require: (specifier: "./parse-bookmarks-html.ts") => unknown;
+interface ChromeHtmlResourceLimitsRuntime {
+  CHROME_HTML_MAX_INPUT_BYTES: typeof CHROME_HTML_MAX_INPUT_BYTES;
+}
+
+declare const require: (
+  specifier:
+    | "./chrome-html-resource-limits.ts"
+    | "./parse-bookmarks-html.ts",
+) => unknown;
 declare const module: {
-  exports: { parseBookmarksHtml: typeof parseBookmarksHtml };
+  exports: {
+    CHROME_HTML_MAX_INPUT_BYTES: typeof CHROME_HTML_MAX_INPUT_BYTES;
+    parseBookmarksHtml: typeof parseBookmarksHtml;
+  };
 };
 
+const { CHROME_HTML_MAX_INPUT_BYTES: chromeHtmlMaxInputBytesRuntime } = require(
+  "./chrome-html-resource-limits.ts",
+) as ChromeHtmlResourceLimitsRuntime;
 const { parseBookmarksHtml: parseBookmarksHtmlRuntime } = require(
   "./parse-bookmarks-html.ts",
 ) as ChromeHtmlRuntime;
 
-module.exports = { parseBookmarksHtml: parseBookmarksHtmlRuntime };
+module.exports = {
+  CHROME_HTML_MAX_INPUT_BYTES: chromeHtmlMaxInputBytesRuntime,
+  parseBookmarksHtml: parseBookmarksHtmlRuntime,
+};

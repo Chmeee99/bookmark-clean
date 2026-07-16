@@ -25,6 +25,11 @@ interface SqliteApi {
   DatabaseSync: new (location: string) => SqliteDatabase;
 }
 
+interface FileSystemApi {
+  chmodSync(path: string, mode: number): void;
+  statSync(path: string): { readonly mode: number };
+}
+
 interface TemporaryDatabase {
   readonly directory: string;
   readonly databasePath: string;
@@ -43,10 +48,12 @@ interface CatalogDatabaseApi {
 }
 
 declare const require: (specifier: string) => unknown;
+declare const process: { readonly platform: string };
 
 const loadModule = require as unknown as (specifier: string) => unknown;
 const { test } = loadModule("node:test") as NodeTestApi;
 const { DatabaseSync } = loadModule("node:sqlite") as SqliteApi;
+const fileSystem = loadModule("node:fs") as FileSystemApi;
 const { withTemporaryDatabase } = loadModule(
   "../helpers/temporary-database.ts",
 ) as TemporaryDatabaseApi;
@@ -90,6 +97,12 @@ function assertUnavailable(
   );
 }
 
+function assertOwnerOnly(databasePath: string, message: string): void {
+  if (process.platform === "win32") return;
+  const mode = fileSystem.statSync(databasePath).mode & 0o777;
+  assert(mode === 0o600, `${message}: mode ${mode.toString(8)}`);
+}
+
 test("public session migrates stores closes and reopens without exposing SQLite", async () => {
   assertDeepEqual(
     Object.keys(sqlitePublic),
@@ -100,6 +113,7 @@ test("public session migrates stores closes and reopens without exposing SQLite"
   await withTemporaryDatabase(async ({ databasePath }) => {
     const opened = openCatalogDatabase(databasePath);
     assert(opened.ok, "Catalog database should open");
+    assertOwnerOnly(databasePath, "New Catalog database was not owner-only");
     const snapshot = emptySnapshot("snapshot:session");
     assert((await opened.value.store.save(snapshot)).ok, "Snapshot should save");
     opened.value.close();
@@ -109,8 +123,13 @@ test("public session migrates stores closes and reopens without exposing SQLite"
       "Closed session store should be unavailable",
     );
 
+    if (process.platform !== "win32") {
+      fileSystem.chmodSync(databasePath, 0o644);
+    }
+
     const reopened = openCatalogDatabase(databasePath);
     assert(reopened.ok, "Catalog database should reopen");
+    assertOwnerOnly(databasePath, "Existing Catalog database was not tightened");
     const loaded = await reopened.value.store.load(snapshot.id);
     assert(loaded.ok, "Snapshot should load after reopen");
     assertDeepEqual(loaded.value, snapshot, "Reopened snapshot changed");
@@ -119,6 +138,10 @@ test("public session migrates stores closes and reopens without exposing SQLite"
 });
 
 test("unavailable paths and failed migrations return the fixed failure", async () => {
+  const memory = openCatalogDatabase(":memory:");
+  assert(memory.ok, "In-memory Catalog database should remain supported");
+  memory.value.close();
+
   await withTemporaryDatabase(async ({ directory, databasePath }) => {
     assertUnavailable(
       openCatalogDatabase(directory),

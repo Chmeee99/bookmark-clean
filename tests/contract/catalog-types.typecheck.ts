@@ -1,5 +1,6 @@
 import type {
   BookmarkId,
+  IsoDateTime,
   Outcome,
   SnapshotId,
 } from "../../core/contracts/public.js";
@@ -11,9 +12,13 @@ import type {
   BookmarkSource,
   CatalogFailure,
   CatalogIdFactory,
+  CatalogInspection,
+  CatalogInspectionFolder,
+  CatalogInspector,
   CatalogImportFailure,
   CatalogImportFailureCode,
   CatalogImportFailureField,
+  CatalogResourceLimits,
   CatalogSnapshotStore,
   CatalogStorageFailure,
   CatalogStorageFailureCode,
@@ -21,8 +26,10 @@ import type {
   SourceBookmark,
   SourceBookmarkFolder,
   SourceBookmarkNode,
+  createCatalogInspector,
 } from "../../modules/catalog/public.js";
 import {
+  CATALOG_RESOURCE_LIMITS,
   createBookmarkCatalog,
   createCryptoCatalogIdFactory,
   type CatalogServiceDependencies,
@@ -44,6 +51,16 @@ type ImportFailures = Assert<Equal<CatalogImportFailureCode,
   | "invalid_date"
   | "empty_url"
   | "cyclic_tree"
+  | "node_limit_exceeded"
+  | "depth_limit_exceeded"
+>>;
+type ResourceLimits = Assert<Equal<CatalogResourceLimits, {
+  readonly maximumNodes: 20_000;
+  readonly maximumDepth: 256;
+}>>;
+type ResourceLimitValue = Assert<Equal<
+  typeof CATALOG_RESOURCE_LIMITS,
+  CatalogResourceLimits
 >>;
 type FailureFields = Assert<Equal<CatalogImportFailureField,
   | "capturedAt"
@@ -87,10 +104,34 @@ type IdFactoryCreatorContract = Assert<Equal<
   typeof createCryptoCatalogIdFactory,
   () => CatalogIdFactory
 >>;
+type InspectionFolderContract = Assert<Equal<CatalogInspectionFolder, {
+  readonly id: BookmarkId;
+  readonly title: string;
+  readonly bookmarkCount: number;
+  readonly folders: readonly CatalogInspectionFolder[];
+}>>;
+type InspectionContract = Assert<Equal<CatalogInspection, {
+  readonly snapshotId: SnapshotId;
+  readonly capturedAt: IsoDateTime;
+  readonly rootCount: number;
+  readonly folderCount: number;
+  readonly bookmarkCount: number;
+  readonly folders: readonly CatalogInspectionFolder[];
+}>>;
+type InspectorContract = Assert<Equal<CatalogInspector, {
+  inspectSnapshot(
+    id: SnapshotId,
+  ): Promise<Outcome<CatalogInspection | null, CatalogStorageFailure>>;
+}>>;
+type InspectorFactoryContract = Assert<Equal<
+  typeof createCatalogInspector,
+  (catalog: Pick<BookmarkCatalog, "getSnapshot">) => CatalogInspector
+>>;
 
 declare const folder: SourceBookmarkFolder;
 declare const bookmark: SourceBookmark;
 declare const bookmarkId: BookmarkId;
+declare const inspectionFolder: CatalogInspectionFolder;
 // @ts-expect-error folders do not have URLs
 folder.url = "https://example.com/";
 // @ts-expect-error bookmarks do not have children
@@ -103,9 +144,15 @@ bookmark.index = 0;
 const invalidSource: BookmarkSource = "firefox_html";
 // @ts-expect-error Catalog identities use distinct brands
 const wrongSnapshotId: SnapshotId = bookmarkId;
+// @ts-expect-error inspection folders never expose bookmark URLs
+inspectionFolder.url = "https://example.com/";
+// @ts-expect-error inspection folders use a projection rather than snapshot children
+inspectionFolder.children = [];
 
 void (null as unknown as Sources);
 void (null as unknown as ImportFailures);
+void (null as unknown as ResourceLimits);
+void (null as unknown as ResourceLimitValue);
 void (null as unknown as FailureFields);
 void (null as unknown as StorageFailures);
 void (null as unknown as Failures);
@@ -115,5 +162,9 @@ void (null as unknown as StoreContract);
 void (null as unknown as IdFactoryContract);
 void (null as unknown as CatalogFactoryContract);
 void (null as unknown as IdFactoryCreatorContract);
+void (null as unknown as InspectionFolderContract);
+void (null as unknown as InspectionContract);
+void (null as unknown as InspectorContract);
+void (null as unknown as InspectorFactoryContract);
 void invalidSource;
 void wrongSnapshotId;

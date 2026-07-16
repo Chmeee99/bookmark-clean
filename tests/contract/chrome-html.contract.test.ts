@@ -21,10 +21,13 @@ function assertDeepEqual(actual: unknown, expected: unknown, message: string): v
 test("Chrome HTML adapter public contract exposes only its parser", () => {
   assertDeepEqual(
     Object.keys(chromeHtmlPublic),
-    ["parseBookmarksHtml"],
+    ["CHROME_HTML_MAX_INPUT_BYTES", "parseBookmarksHtml"],
     "Chrome HTML adapter public runtime exports changed",
   );
-  if (typeof chromeHtmlPublic.parseBookmarksHtml !== "function") {
-    throw new Error("Chrome HTML public parser should be a function");
+  if (
+    chromeHtmlPublic.CHROME_HTML_MAX_INPUT_BYTES !== 16_777_216 ||
+    typeof chromeHtmlPublic.parseBookmarksHtml !== "function"
+  ) {
+    throw new Error("Chrome HTML public exports changed");
   }
 });

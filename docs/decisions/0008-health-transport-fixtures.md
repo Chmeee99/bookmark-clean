@@ -1,7 +1,19 @@
 # ADR 0008: Node Health transport evidence
 
-Status: evidence retained; loopback fixture removed
+Status: evidence retained; superseded for current production transport behavior
 Date: 2026-07-13
+
+## Supersession note
+
+As of 2026-07-16, this ADR remains the dated discovery record for the removed
+fixture. Current production behavior is defined in
+`docs/architecture/module-map.md` and proved by
+`tests/integration/health-node-transport.test.ts`,
+`tests/integration/health-node-evidence.test.ts`, and
+`tests/integration/health-https-success.test.ts`. VER-584, VER-608, VER-612,
+and VER-613 record the structured DNS/TLS classification, request-target
+safety, complete deadline, and aggregate verification evidence. Loopback
+listener permission remains an environment requirement recorded by RISK-006.
 
 ## Observed runtime
 

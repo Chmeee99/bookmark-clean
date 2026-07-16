@@ -54,7 +54,34 @@ export type RunImportCommand = (
 ) => Promise<ImportCommandResult>;
 
 interface FileSystemApi {
-  readFileSync(path: string, encoding: "utf8"): string;
+  closeSync(descriptor: number): void;
+  openSync(path: string, flags: "r"): number;
+  readSync(
+    descriptor: number,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: null,
+  ): number;
+}
+
+interface NodeBuffer extends Uint8Array {
+  subarray(start: number, end: number): NodeBuffer;
+}
+
+interface BufferRuntime {
+  readonly Buffer: {
+    allocUnsafe(size: number): NodeBuffer;
+  };
+}
+
+interface TextDecoderRuntime {
+  readonly TextDecoder: new (
+    label?: string,
+    options?: { readonly fatal?: boolean },
+  ) => {
+    decode(input?: Uint8Array): string;
+  };
 }
 
 interface CatalogRuntime {
@@ -66,6 +93,7 @@ interface CatalogRuntime {
 }
 
 interface ChromeHtmlRuntime {
+  CHROME_HTML_MAX_INPUT_BYTES: 16_777_216;
   parseBookmarksHtml: ChromeHtmlImporter["parse"];
 }
 
@@ -92,12 +120,14 @@ declare const module: {
 };
 
 const loadModule = require as unknown as (specifier: string) => unknown;
-const { readFileSync } = loadModule("node:fs") as FileSystemApi;
+const { Buffer } = loadModule("node:buffer") as BufferRuntime;
+const { closeSync, openSync, readSync } = loadModule("node:fs") as FileSystemApi;
+const { TextDecoder } = loadModule("node:util") as TextDecoderRuntime;
 const {
   createBookmarkCatalog,
   createCryptoCatalogIdFactory,
 } = loadModule("../../modules/catalog/public.ts") as CatalogRuntime;
-const { parseBookmarksHtml } = loadModule(
+const { CHROME_HTML_MAX_INPUT_BYTES, parseBookmarksHtml } = loadModule(
   "../../adapters/chrome-html/public.ts",
 ) as ChromeHtmlRuntime;
 const { openCatalogDatabase } = loadModule(
@@ -173,15 +203,68 @@ function importFailure(error: ImportChromeHtmlFailure): ImportCommandResult {
   };
 }
 
+function readBoundedHtml(path: string):
+  | { readonly ok: true; readonly value: string }
+  | {
+      readonly ok: false;
+      readonly code: "input_unavailable" | "invalid_encoding" | "input_too_large";
+    } {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, "r");
+    const bytes = Buffer.allocUnsafe(CHROME_HTML_MAX_INPUT_BYTES + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const read = readSync(
+        descriptor,
+        bytes,
+        length,
+        bytes.length - length,
+        null,
+      );
+      if (read === 0) break;
+      length += read;
+    }
+    closeSync(descriptor);
+    descriptor = undefined;
+    if (length > CHROME_HTML_MAX_INPUT_BYTES) {
+      return { ok: false, code: "input_too_large" };
+    }
+    try {
+      const decoder = new TextDecoder("utf-8", { fatal: true });
+      return { ok: true, value: decoder.decode(bytes.subarray(0, length)) };
+    } catch {
+      return { ok: false, code: "invalid_encoding" };
+    }
+  } catch {
+    if (descriptor !== undefined) {
+      try {
+        closeSync(descriptor);
+      } catch {
+        // The command still owns one fixed input-unavailable result.
+      }
+    }
+    return { ok: false, code: "input_unavailable" };
+  }
+}
+
 const runImportCommand: RunImportCommand = async (arguments_) => {
   const options = parseArguments(arguments_);
   if (options === undefined) return failure(2, "invalid_arguments");
 
   const capturedAt = new Date().toISOString() as IsoDateTime;
-  let html: string;
-  try {
-    html = readFileSync(options.inputPath, "utf8");
-  } catch {
+  const input = readBoundedHtml(options.inputPath);
+  if (!input.ok) {
+    if (input.code === "input_too_large" || input.code === "invalid_encoding") {
+      return importFailure({
+        stage: "source",
+        failure: {
+          code: input.code,
+          path: [],
+          field: "html",
+        },
+      });
+    }
     return failure(3, "input_unavailable");
   }
 
@@ -195,7 +278,7 @@ const runImportCommand: RunImportCommand = async (arguments_) => {
     });
     const importer: ChromeHtmlImporter = { parse: parseBookmarksHtml };
     const application = createBookmarkCleanApp({ importer, catalog });
-    const request: ChromeHtmlImportRequest = { html, capturedAt };
+    const request: ChromeHtmlImportRequest = { html: input.value, capturedAt };
     const imported = await application.importChromeHtml(request);
     return imported.ok ? success(imported.value) : importFailure(imported.error);
   } finally {

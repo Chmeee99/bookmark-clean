@@ -2,6 +2,7 @@ import type {
   BookmarkCatalog,
   BookmarkFolderRecord,
   BookmarkRecord,
+  CatalogResourceLimits,
   CatalogStorageFailure,
 } from "../catalog/public.js";
 import type {
@@ -42,6 +43,26 @@ interface ResolvedSelection {
   readonly bookmarkIds: readonly BookmarkId[];
 }
 
+interface TraversedSelection {
+  readonly folder?: BookmarkFolderRecord;
+  readonly bookmarkIds: readonly BookmarkId[];
+}
+
+interface TraversalFrame {
+  readonly record: BookmarkRecord;
+  readonly depth: number;
+  readonly insideSelection: boolean;
+}
+
+interface CatalogRuntime {
+  readonly CATALOG_RESOURCE_LIMITS: CatalogResourceLimits;
+}
+
+declare const require: (specifier: "../catalog/public.ts") => unknown;
+const { CATALOG_RESOURCE_LIMITS } = require(
+  "../catalog/public.ts",
+) as CatalogRuntime;
+
 function previewFailure<Value>(
   code: ProcessingPreviewFailure["code"],
 ): Outcome<Value, ProcessingPreviewFailure> {
@@ -76,32 +97,56 @@ function validStartRequest(request: ProcessingStartRequest): boolean {
   );
 }
 
-function findFolder(
+function traverseSelection(
   records: readonly BookmarkRecord[],
   folderId: string,
-): BookmarkFolderRecord | undefined {
-  for (const record of records) {
-    if (record.kind === "folder") {
-      if (record.id === folderId) return record;
-      const nested = findFolder(record.children, folderId);
-      if (nested !== undefined) return nested;
-    }
+): Outcome<TraversedSelection, ProcessingPreviewFailure> {
+  const frames: TraversalFrame[] = [];
+  const bookmarkIds: BookmarkId[] = [];
+  let folder: BookmarkFolderRecord | undefined;
+  let nodeCount = 0;
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    frames.push({
+      record: records[index],
+      depth: 1,
+      insideSelection: false,
+    });
   }
-  return undefined;
-}
 
-function collectBookmarkIds(
-  records: readonly BookmarkRecord[],
-  bookmarkIds: BookmarkId[] = [],
-): readonly BookmarkId[] {
-  for (const record of records) {
-    if (record.kind === "bookmark") {
-      bookmarkIds.push(record.id);
-    } else {
-      collectBookmarkIds(record.children, bookmarkIds);
+  while (frames.length > 0) {
+    const frame = frames.pop() as TraversalFrame;
+    if (frame.depth > CATALOG_RESOURCE_LIMITS.maximumDepth) {
+      return previewFailure("snapshot_invalid");
+    }
+    nodeCount += 1;
+    if (nodeCount > CATALOG_RESOURCE_LIMITS.maximumNodes) {
+      return previewFailure("snapshot_invalid");
+    }
+
+    if (frame.record.kind === "bookmark") {
+      if (frame.insideSelection) bookmarkIds.push(frame.record.id);
+      continue;
+    }
+
+    const selectedHere = folder === undefined && frame.record.id === folderId;
+    if (selectedHere) folder = frame.record;
+    const insideSelection = frame.insideSelection || selectedHere;
+    for (let index = frame.record.children.length - 1; index >= 0; index -= 1) {
+      frames.push({
+        record: frame.record.children[index],
+        depth: frame.depth + 1,
+        insideSelection,
+      });
     }
   }
-  return bookmarkIds;
+
+  return {
+    ok: true,
+    value: {
+      ...(folder === undefined ? {} : { folder }),
+      bookmarkIds,
+    },
+  };
 }
 
 function catalogFailure<Value>(
@@ -120,8 +165,8 @@ function catalogFailure<Value>(
 function buildSelection(
   request: ProcessingPreviewRequest,
   folder: BookmarkFolderRecord,
+  bookmarkIds: readonly BookmarkId[],
 ): Outcome<ResolvedSelection, ProcessingPreviewFailure> {
-  const bookmarkIds = collectBookmarkIds(folder.children);
   const bookmarkCount = bookmarkIds.length;
   const maximumNetworkRequests =
     bookmarkCount * HEALTH_CHECK_V1.maximumNetworkRequestsPerJob;
@@ -160,9 +205,16 @@ async function resolveSelection(
   if (!loaded.ok) return catalogFailure(loaded.error);
   if (loaded.value === null) return previewFailure("snapshot_not_found");
 
-  const folder = findFolder(loaded.value.roots, request.folderId);
-  if (folder === undefined) return previewFailure("folder_not_found");
-  return buildSelection(request, folder);
+  const traversed = traverseSelection(loaded.value.roots, request.folderId);
+  if (!traversed.ok) return traversed;
+  if (traversed.value.folder === undefined) {
+    return previewFailure("folder_not_found");
+  }
+  return buildSelection(
+    request,
+    traversed.value.folder,
+    traversed.value.bookmarkIds,
+  );
 }
 
 function encodeTuple(parts: readonly string[]): string {

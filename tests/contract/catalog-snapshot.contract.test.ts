@@ -52,6 +52,37 @@ function validSnapshot(): Record<string, unknown> {
   };
 }
 
+function bookmarkNode(index: number): Record<string, unknown> {
+  return {
+    kind: "bookmark",
+    sourceId: `bookmark-${index}`,
+    title: `Bookmark ${index}`,
+    url: `https://example.com/${index}`,
+  };
+}
+
+function flatSnapshot(nodeCount: number): Record<string, unknown> {
+  return {
+    source: "chrome_html",
+    capturedAt: CAPTURED_AT,
+    roots: Array.from({ length: nodeCount }, (_, index) => bookmarkNode(index)),
+  };
+}
+
+function nestedFolder(depth: number, sourceIdOffset = 0): Record<string, unknown> {
+  let node: Record<string, unknown> | undefined;
+  for (let level = depth; level >= 1; level -= 1) {
+    node = {
+      kind: "folder",
+      sourceId: `folder-${sourceIdOffset + level}`,
+      title: `Folder ${level}`,
+      children: node === undefined ? [] : [node],
+    };
+  }
+  assert(node !== undefined, "Expected a non-empty folder chain");
+  return node;
+}
+
 function rootOf(input: Record<string, unknown>): Record<string, unknown> {
   return (input.roots as Record<string, unknown>[])[0];
 }
@@ -70,13 +101,21 @@ function expectFailure(
 test("Catalog public contract exposes only its runtime factories", () => {
   assertDeepEqual(
     Object.keys(catalogPublic).sort(),
-    ["createBookmarkCatalog", "createCryptoCatalogIdFactory"],
+    [
+      "CATALOG_RESOURCE_LIMITS",
+      "createBookmarkCatalog",
+      "createCatalogInspector",
+      "createCryptoCatalogIdFactory",
+    ],
     "Catalog public runtime exports changed",
   );
   assert(
+    JSON.stringify(catalogPublic.CATALOG_RESOURCE_LIMITS) ===
+      '{"maximumNodes":20000,"maximumDepth":256}' &&
     typeof catalogPublic.createBookmarkCatalog === "function" &&
+      typeof catalogPublic.createCatalogInspector === "function" &&
       typeof catalogPublic.createCryptoCatalogIdFactory === "function",
-    "Catalog runtime factories should be functions",
+    "Catalog runtime exports changed",
   );
 });
 
@@ -159,4 +198,56 @@ test("depth-first traversal returns only the first failure", () => {
   children[0].sourceId = "";
   children[1].url = "";
   expectFailure(input, "empty_source_id", [0, 0], "sourceId");
+});
+
+test("Catalog structural limits are inclusive and report exact first paths", () => {
+  const maximumNodes = flatSnapshot(20_000);
+  const maximumDepth = {
+    source: "chrome_html",
+    capturedAt: CAPTURED_AT,
+    roots: [nestedFolder(256)],
+  };
+  assert(validateBookmarkSnapshotInput(maximumNodes).ok, "20,000 nodes should be accepted");
+  assert(validateBookmarkSnapshotInput(maximumDepth).ok, "Depth 256 should be accepted");
+
+  const tooManyNodes = validateBookmarkSnapshotInput(flatSnapshot(20_001));
+  assert(!tooManyNodes.ok, "20,001 nodes should fail");
+  assertDeepEqual(
+    tooManyNodes.error,
+    { code: "node_limit_exceeded", path: [20_000] },
+    "Node limit failure changed",
+  );
+
+  const tooDeep = validateBookmarkSnapshotInput({
+    source: "chrome_html",
+    capturedAt: CAPTURED_AT,
+    roots: [nestedFolder(257)],
+  });
+  assert(!tooDeep.ok, "Depth 257 should fail");
+  assertDeepEqual(
+    tooDeep.error,
+    { code: "depth_limit_exceeded", path: Array.from({ length: 257 }, () => 0) },
+    "Depth limit failure changed",
+  );
+});
+
+test("depth wins when the first over-depth node also exceeds the node limit", () => {
+  const precedingNodes = Array.from(
+    { length: 19_744 },
+    (_, index) => bookmarkNode(index),
+  );
+  const result = validateBookmarkSnapshotInput({
+    source: "chrome_html",
+    capturedAt: CAPTURED_AT,
+    roots: [...precedingNodes, nestedFolder(257, 20_000)],
+  });
+  assert(!result.ok, "Competing structural limits should fail");
+  assertDeepEqual(
+    result.error,
+    {
+      code: "depth_limit_exceeded",
+      path: [19_744, ...Array.from({ length: 256 }, () => 0)],
+    },
+    "Structural limit precedence changed",
+  );
 });

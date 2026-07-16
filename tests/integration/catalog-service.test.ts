@@ -151,6 +151,19 @@ function nestedInput(): BookmarkSnapshotInput {
   };
 }
 
+function overNodeLimitInput(): BookmarkSnapshotInput {
+  return {
+    source: "chrome_html",
+    capturedAt: CAPTURED_AT,
+    roots: Array.from({ length: 20_001 }, (_, index) => ({
+      kind: "bookmark",
+      sourceId: `bookmark-${index}`,
+      title: `Bookmark ${index}`,
+      url: `https://example.com/${index}`,
+    })),
+  };
+}
+
 test("invalid input returns the validator failure before dependencies", async () => {
   const ports = makePorts();
   const result = await ports.catalog.importSnapshot({
@@ -164,6 +177,18 @@ test("invalid input returns the validator failure before dependencies", async ()
     "Validator failure changed",
   );
   assertDeepEqual(ports.events, [], "Invalid input touched a dependency");
+});
+
+test("over-budget input returns the exact failure before dependencies", async () => {
+  const ports = makePorts();
+  const result = await ports.catalog.importSnapshot(overNodeLimitInput());
+  assertDeepEqual(
+    result,
+    { ok: false, error: { code: "node_limit_exceeded", path: [20_000] } },
+    "Resource failure changed",
+  );
+  assertDeepEqual(ports.events, [], "Over-budget input touched a dependency");
+  assertDeepEqual(ports.saved, [], "Over-budget input reached storage");
 });
 
 test("empty input allocates one snapshot ID and saves exact zero counts", async () => {

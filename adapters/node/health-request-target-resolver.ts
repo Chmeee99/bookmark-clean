@@ -12,8 +12,11 @@ interface ApprovedHealthRequestTarget {
   readonly hostHeader: string;
 }
 interface UnsupportedUrl { readonly code: "unsupported_url"; }
+interface ResolverFailure {
+  readonly code: "unsupported_url" | "dns_failure" | "unknown_transport";
+}
 interface HealthRequestTargetResolver {
-  resolve(url: string): Promise<Outcome<ApprovedHealthRequestTarget, UnsupportedUrl>>;
+  resolve(url: string): Promise<Outcome<ApprovedHealthRequestTarget, ResolverFailure>>;
 }
 interface ResolverOptions {
   readonly lookup?: (hostname: string) => Promise<readonly AddressRecord[]>;
@@ -29,12 +32,21 @@ interface DnsApi {
 }
 interface NetApi { isIP(address: string): number; }
 
-declare const require: (specifier: "node:dns" | "node:net") => unknown;
+interface ErrorClassifierApi {
+  mapNodeLookupError(error: unknown): "dns_failure" | "unknown_transport";
+}
+
+declare const require: (
+  specifier: "node:dns" | "node:net" | "./health-node-error-classifier.ts",
+) => unknown;
 declare const module: {
   exports: { createHealthRequestTargetResolver: typeof createHealthRequestTargetResolver };
 };
 const dns = require("node:dns") as DnsApi;
 const net = require("node:net") as NetApi;
+const { mapNodeLookupError } = require(
+  "./health-node-error-classifier.ts",
+) as ErrorClassifierApi;
 
 type AddressDisposition = "safe" | "loopback" | "unsafe";
 
@@ -51,33 +63,55 @@ function ipv4Bytes(address: string): readonly number[] | undefined {
   ) ? bytes : undefined;
 }
 
-function inIpv4Range(
+type Ipv4Prefix = readonly [readonly number[], number];
+
+// IANA IPv4 Special-Purpose Address Registry, last updated 2025-10-09:
+// https://www.iana.org/assignments/iana-ipv4-special-registry/
+const LOOPBACK_IPV4_PREFIX: Ipv4Prefix = [[127], 8];
+const GLOBAL_IPV4_EXCEPTIONS: readonly Ipv4Prefix[] = [
+  [[192, 0, 0, 9], 32],
+  [[192, 0, 0, 10], 32],
+];
+const NON_GLOBAL_IPV4_PREFIXES: readonly Ipv4Prefix[] = [
+  [[0], 8],
+  [[10], 8],
+  [[100, 64], 10],
+  [[169, 254], 16],
+  [[172, 16], 12],
+  [[192, 0, 0], 24],
+  [[192, 0, 2], 24],
+  [[192, 88, 99], 24],
+  [[192, 168], 16],
+  [[198, 18], 15],
+  [[198, 51, 100], 24],
+  [[203, 0, 113], 24],
+  [[224], 3],
+];
+
+function inIpv4Prefix(
   bytes: readonly number[],
-  first: number,
-  secondStart = 0,
-  secondEnd = 255,
+  [prefix, length]: Ipv4Prefix,
 ): boolean {
-  return bytes[0] === first && bytes[1] >= secondStart && bytes[1] <= secondEnd;
+  const complete = Math.floor(length / 8);
+  for (let index = 0; index < complete; index += 1) {
+    if (bytes[index] !== (prefix[index] ?? 0)) return false;
+  }
+  const remaining = length % 8;
+  if (remaining === 0) return true;
+  const mask = (0xff << (8 - remaining)) & 0xff;
+  return (bytes[complete] & mask) === ((prefix[complete] ?? 0) & mask);
 }
 
 function ipv4Disposition(address: string): AddressDisposition {
   const bytes = ipv4Bytes(address);
   if (bytes === undefined) return "unsafe";
-  const [first, second, third] = bytes;
-  if (inIpv4Range(bytes, 127)) return "loopback";
-  if (
-    inIpv4Range(bytes, 0) ||
-    inIpv4Range(bytes, 10) ||
-    inIpv4Range(bytes, 100, 64, 127) ||
-    inIpv4Range(bytes, 169, 254, 254) ||
-    inIpv4Range(bytes, 172, 16, 31) ||
-    first === 192 && second === 0 && (third === 0 || third === 2) ||
-    inIpv4Range(bytes, 192, 168, 168) ||
-    inIpv4Range(bytes, 198, 18, 19) ||
-    first === 198 && second === 51 && third === 100 ||
-    first === 203 && second === 0 && third === 113 ||
-    first >= 224
-  ) return "unsafe";
+  if (inIpv4Prefix(bytes, LOOPBACK_IPV4_PREFIX)) return "loopback";
+  if (GLOBAL_IPV4_EXCEPTIONS.some((prefix) => inIpv4Prefix(bytes, prefix))) {
+    return "safe";
+  }
+  if (NON_GLOBAL_IPV4_PREFIXES.some((prefix) => inIpv4Prefix(bytes, prefix))) {
+    return "unsafe";
+  }
   return "safe";
 }
 
@@ -108,6 +142,70 @@ function ipv6Hextets(address: string): readonly number[] | undefined {
   return parts.map((part) => Number.parseInt(part, 16));
 }
 
+type Ipv6Prefix = readonly [readonly number[], number];
+
+// IANA IPv6 Address Space, last updated 2025-10-23, identifies 2000::/3
+// as Global Unicast; RFC 6052 defines the separate well-known translator.
+const GLOBAL_UNICAST_IPV6_PREFIX: Ipv6Prefix = [[0x2000], 3];
+const RFC6052_WELL_KNOWN_PREFIX: Ipv6Prefix = [[0x0064, 0xff9b], 96];
+
+// IANA IPv6 Special-Purpose Address Registry, last updated 2025-10-09:
+// https://www.iana.org/assignments/iana-ipv6-special-registry/
+const NON_GLOBAL_IPV6_PREFIXES: readonly Ipv6Prefix[] = [
+  [[0x0064, 0xff9b, 0x0001], 48],
+  [[0x0100], 64],
+  [[0x0100, 0x0000, 0x0000, 0x0001], 64],
+  [[0x2001, 0x0002], 48],
+  [[0x2001, 0x0db8], 32],
+  [[0x2002], 16],
+  [[0x3ffe], 16],
+  [[0x3fff], 20],
+  [[0x5f00], 16],
+  [[0xfc00], 7],
+  [[0xfe80], 10],
+  [[0xff00], 8],
+  [[], 96],
+];
+
+const GLOBAL_IETF_PROTOCOL_EXCEPTIONS: readonly Ipv6Prefix[] = [
+  [[0x2001, 0x0001, 0, 0, 0, 0, 0, 0x0001], 128],
+  [[0x2001, 0x0001, 0, 0, 0, 0, 0, 0x0002], 128],
+  [[0x2001, 0x0001, 0, 0, 0, 0, 0, 0x0003], 128],
+  [[0x2001, 0x0003], 32],
+  [[0x2001, 0x0004, 0x0112], 48],
+  [[0x2001, 0x0020], 28],
+  [[0x2001, 0x0030], 28],
+];
+
+function inIpv6Prefix(
+  parts: readonly number[],
+  [prefix, length]: Ipv6Prefix,
+): boolean {
+  const complete = Math.floor(length / 16);
+  for (let index = 0; index < complete; index += 1) {
+    if (parts[index] !== (prefix[index] ?? 0)) return false;
+  }
+  const remaining = length % 16;
+  if (remaining === 0) return true;
+  const mask = (0xffff << (16 - remaining)) & 0xffff;
+  return (parts[complete] & mask) === ((prefix[complete] ?? 0) & mask);
+}
+
+function lastIpv4Disposition(parts: readonly number[]): AddressDisposition {
+  return ipv4Disposition([
+    parts[6] >> 8, parts[6] & 255, parts[7] >> 8, parts[7] & 255,
+  ].join("."));
+}
+
+function isNonGlobalIpv6(parts: readonly number[]): boolean {
+  const ietfAssignments: Ipv6Prefix = [[0x2001], 23];
+  if (inIpv6Prefix(parts, ietfAssignments) &&
+    !GLOBAL_IETF_PROTOCOL_EXCEPTIONS.some((prefix) => inIpv6Prefix(parts, prefix))) {
+    return true;
+  }
+  return NON_GLOBAL_IPV6_PREFIXES.some((prefix) => inIpv6Prefix(parts, prefix));
+}
+
 function ipv6Disposition(address: string): AddressDisposition {
   const parts = ipv6Hextets(address);
   if (parts === undefined) return "unsafe";
@@ -118,18 +216,13 @@ function ipv6Disposition(address: string): AddressDisposition {
   }
   const mapped = parts.slice(0, 5).every((part) => part === 0) && parts[5] === 0xffff;
   if (mapped) {
-    return ipv4Disposition([
-      parts[6] >> 8, parts[6] & 255, parts[7] >> 8, parts[7] & 255,
-    ].join("."));
+    return lastIpv4Disposition(parts);
   }
-  if (
-    (parts[0] & 0xfe00) === 0xfc00 ||
-    (parts[0] & 0xffc0) === 0xfe80 ||
-    (parts[0] & 0xff00) === 0xff00 ||
-    (parts[0] === 0x2001 && parts[1] === 0x0db8) ||
-    (parts[0] === 0x2001 && parts[1] === 0x0002) ||
-    parts.slice(0, 6).every((part) => part === 0)
-  ) return "unsafe";
+  if (inIpv6Prefix(parts, RFC6052_WELL_KNOWN_PREFIX)) {
+    return lastIpv4Disposition(parts) === "safe" ? "safe" : "unsafe";
+  }
+  if (!inIpv6Prefix(parts, GLOBAL_UNICAST_IPV6_PREFIX)) return "unsafe";
+  if (isNonGlobalIpv6(parts)) return "unsafe";
   return "safe";
 }
 
@@ -209,7 +302,9 @@ function createHealthRequestTargetResolver(
       try {
         const literal = literalRecord(target.hostname);
         records = literal === undefined ? await lookup(target.hostname) : [literal];
-      } catch { return unsupported(); }
+      } catch (error) {
+        return { ok: false, error: { code: mapNodeLookupError(error) } };
+      }
       if (!Array.isArray(records) || records.length === 0) return unsupported();
       for (const record of records) {
         if (!isAddressRecord(record)) return unsupported();

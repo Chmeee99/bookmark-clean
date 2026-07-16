@@ -1,3 +1,6 @@
 id,date,area,lesson,rule,status
 LES-001,2026-07-13,model-routing,Luna beats Terra on the user's price-intelligence preference,Use Luna max for executor-safe delegated slices and avoid Terra unless the user changes this preference,active
 LES-002,2026-07-13,goal-economics,An unbounded long-running goal consumed far more tokens than the user expected,Surface token usage at meaningful checkpoints and obtain an explicit budget before resuming expensive delegated execution,active
+LES-003,2026-07-16,verification,Known loopback integration tests fail with EPERM in the restricted sandbox,Run identified loopback suites with approved local-port access instead of repeating a sandbox-only failure,active
+LES-004,2026-07-16,request-safety,The IPv6 special-purpose registry is not an exhaustive allowlist of globally eligible destinations,Define positive eligible address space before subtracting special deprecated and phased-out prefixes and test false edge controls adversarially,active
+LES-005,2026-07-16,receiving-boundaries,Full structural validation can still miss request identity when parallel load and save success branches diverge,Apply and test the same identity invariant independently at every repository success boundary,active

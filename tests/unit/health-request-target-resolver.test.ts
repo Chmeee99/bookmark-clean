@@ -13,7 +13,9 @@ interface ApprovedTarget {
 interface TargetResolver {
   resolve(url: string): Promise<
     | { readonly ok: true; readonly value: ApprovedTarget }
-    | { readonly ok: false; readonly error: { readonly code: "unsupported_url" } }
+    | { readonly ok: false; readonly error: {
+      readonly code: "unsupported_url" | "dns_failure" | "unknown_transport";
+    } }
   >;
 }
 interface ResolverApi {
@@ -69,7 +71,7 @@ test("normalizes approved HTTP targets and preserves verification fields", async
   });
 });
 
-test("rejects malformed URLs schemes credentials and resolver failures", async () => {
+test("rejects malformed URLs schemes credentials and lookup results", async () => {
   const resolver = createHealthRequestTargetResolver({ lookup: safeLookup });
   for (const url of [
     "not a URL",
@@ -85,9 +87,35 @@ test("rejects malformed URLs schemes credentials and resolver failures", async (
     async () => [null as never],
     async () => [{ address: "bad-address", family: 4 as const }],
     async () => [{ address: "1.1.1.1", family: 6 as const }],
-    async (): Promise<readonly AddressRecord[]> => { throw new Error("opaque resolver prose"); },
   ]) {
     equal(await createHealthRequestTargetResolver({ lookup }).resolve("https://example.com"), rejected);
+  }
+});
+
+test("classifies structured lookup failures without interpreting error prose", async () => {
+  for (const code of ["ENOTFOUND", "EAI_AGAIN"]) {
+    const resolver = createHealthRequestTargetResolver({
+      async lookup(): Promise<readonly AddressRecord[]> {
+        throw Object.assign(new Error("opaque resolver prose"), { code });
+      },
+    });
+    equal(await resolver.resolve("https://example.com"), {
+      ok: false,
+      error: { code: "dns_failure" },
+    });
+  }
+
+  for (const thrown of [
+    Object.assign(new Error("not semantic input"), { code: "EUNKNOWN" }),
+    new Error("ENOTFOUND appears only in prose"),
+  ]) {
+    const resolver = createHealthRequestTargetResolver({
+      async lookup(): Promise<readonly AddressRecord[]> { throw thrown; },
+    });
+    equal(await resolver.resolve("https://example.com"), {
+      ok: false,
+      error: { code: "unknown_transport" },
+    });
   }
 });
 
@@ -100,6 +128,7 @@ test("rejects every configured unsafe IPv4 and IPv6 range", async () => {
     { address: "169.254.1.1", family: 4 },
     { address: "172.16.0.1", family: 4 },
     { address: "192.0.2.1", family: 4 },
+    { address: "192.88.99.2", family: 4 },
     { address: "192.168.1.1", family: 4 },
     { address: "198.18.0.1", family: 4 },
     { address: "198.51.100.1", family: 4 },
@@ -118,6 +147,82 @@ test("rejects every configured unsafe IPv4 and IPv6 range", async () => {
     const resolver = createHealthRequestTargetResolver({ lookup: async () => [record] });
     equal(await resolver.resolve("https://example.com"), rejected);
   }
+});
+
+test("rejects reserved non-global and deprecated IPv6 blocks", async () => {
+  const unsafe: readonly string[] = [
+    "64:ff9b:0:ffff::1",
+    "64:ff9b:1::1",
+    "64:ff9b:2::1",
+    "100::1",
+    "100:0:0:1::1",
+    "100:0:0:2::1",
+    "2001::1",
+    "2001:10::1",
+    "2002:7f00:1::",
+    "3ffe:ffff::1",
+    "3fff::1",
+    "4000::1",
+    "5eff::1",
+    "5f00::1",
+    "6000::1",
+    "fec0::1",
+  ];
+  for (const address of unsafe) {
+    const resolver = createHealthRequestTargetResolver({ lookup: async () => [
+      { address, family: 6 },
+    ] });
+    equal(await resolver.resolve("https://example.com"), rejected);
+  }
+});
+
+test("applies the RFC 6052 IPv4 policy inside 64:ff9b::/96", async () => {
+  for (const address of [
+    "64:ff9b::7f00:1",
+    "64:ff9b::a00:1",
+    "64:ff9b::c0a8:101",
+    "64:ff9b::c058:6302",
+  ]) {
+    const resolver = createHealthRequestTargetResolver({
+      allowLoopback: true,
+      lookup: async () => [{ address, family: 6 }],
+    });
+    equal(await resolver.resolve("https://example.com"), rejected);
+  }
+
+  const publicTranslation = createHealthRequestTargetResolver({ lookup: async () => [
+    { address: "64:ff9b::808:808", family: 6 },
+  ] });
+  const result = await publicTranslation.resolve("https://example.com");
+  equal(result.ok ? result.value.address : result, "64:ff9b::808:808");
+});
+
+test("preserves global special-address exceptions and prefix-edge controls", async () => {
+  const safe: readonly AddressRecord[] = [
+    { address: "192.0.0.9", family: 4 },
+    { address: "192.0.0.10", family: 4 },
+    { address: "2001:1::1", family: 6 },
+    { address: "2001:1::2", family: 6 },
+    { address: "2001:1::3", family: 6 },
+    { address: "2001:3::1", family: 6 },
+    { address: "2001:4:112::1", family: 6 },
+    { address: "2001:20::1", family: 6 },
+    { address: "2001:30::1", family: 6 },
+    { address: "2606:4700:4700::1111", family: 6 },
+    { address: "::ffff:192.0.0.9", family: 6 },
+    { address: "64:ff9b::c000:9", family: 6 },
+  ];
+  for (const record of safe) {
+    const resolver = createHealthRequestTargetResolver({ lookup: async () => [record] });
+    const result = await resolver.resolve("https://example.com");
+    equal(result.ok ? result.value.address : result, record.address);
+  }
+
+  const mixed = createHealthRequestTargetResolver({ lookup: async () => [
+    { address: "2606:4700:4700::1111", family: 6 },
+    { address: "64:ff9b:1::1", family: 6 },
+  ] });
+  equal(await mixed.resolve("https://example.com"), rejected);
 });
 
 test("rejects mixed answers and selects safe answers deterministically", async () => {

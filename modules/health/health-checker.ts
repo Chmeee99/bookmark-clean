@@ -34,10 +34,22 @@ interface ExecutionEvidence {
   readonly headers: readonly HealthSelectedHeader[];
   readonly body?: Uint8Array;
 }
+interface ObservationValidationApi {
+  isCanonicalUtc(value: unknown): value is IsoDateTime;
+  isHealthObservationForInput(
+    value: unknown,
+    input: Pick<Parameters<HealthChecker["check"]>[0], "bookmarkId" | "inputVersion">,
+  ): value is HealthObservation;
+}
 
-declare const require: (specifier: "./health-fact-classifier.ts") => unknown;
+declare const require: (
+  specifier: "./health-fact-classifier.ts" | "./health-observation-validation.ts",
+) => unknown;
 declare const module: { exports: { createHealthChecker: typeof createHealthChecker } };
 const { classifyHealthFact } = require("./health-fact-classifier.ts") as ClassifierApi;
+const { isCanonicalUtc, isHealthObservationForInput } = require(
+  "./health-observation-validation.ts",
+) as ObservationValidationApi;
 
 const TRANSPORT_CODES: readonly HealthTransportFailureCode[] = [
   "unsupported_url", "timeout", "dns_failure", "tls_error",
@@ -61,12 +73,6 @@ function isNonEmptyString(value: unknown): value is string {
 function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
-function isCanonicalUtc(value: unknown): value is IsoDateTime {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
-    return false;
-  }
-  try { return new Date(value).toISOString() === value; } catch { return false; }
-}
 function validConfig(value: unknown): value is HealthCheckerDependencies["config"] {
   if (typeof value !== "object" || value === null) return false;
   const { timeoutMs, maxRedirects, maxBodyBytes } = value as Record<string, unknown>;
@@ -79,18 +85,6 @@ function validRequest(request: unknown): request is Parameters<HealthChecker["ch
   return isNonEmptyString(value.bookmarkId) && isNonEmptyString(value.inputVersion) &&
     isNonEmptyString(value.url);
 }
-function matchesInput(
-  value: unknown,
-  request: Parameters<HealthChecker["check"]>[0],
-): value is HealthObservation {
-  if (typeof value !== "object" || value === null) return false;
-  const observation = value as Record<string, unknown>;
-  return isNonEmptyString(observation.id) &&
-    observation.bookmarkId === request.bookmarkId &&
-    observation.inputVersion === request.inputVersion &&
-    isNonEmptyString(observation.requestedUrl);
-}
-
 function validHeaders(value: unknown): value is readonly HealthSelectedHeader[] {
   if (!Array.isArray(value)) return false;
   const seen = new Set<string>();
@@ -243,7 +237,9 @@ function createHealthChecker(dependencies: HealthCheckerDependencies): HealthChe
       if (!loaded.ok) return loaded.error?.code === "observation_conflict"
         ? failure("input_conflict", "terminal") : failure("storage_unavailable", "retry");
       if (loaded.value !== null) {
-        if (!matchesInput(loaded.value, request)) return failure("storage_unavailable", "retry");
+        if (!isHealthObservationForInput(loaded.value, request)) {
+          return failure("storage_unavailable", "retry");
+        }
         return loaded.value.requestedUrl === request.url
           ? { ok: true, value: { id: loaded.value.id } }
           : failure("input_conflict", "terminal");
@@ -274,9 +270,12 @@ function createHealthChecker(dependencies: HealthCheckerDependencies): HealthChe
       if (!saved || typeof saved.ok !== "boolean") return failure("storage_unavailable", "retry");
       if (!saved.ok) return saved.error?.code === "observation_conflict"
         ? failure("input_conflict", "terminal") : failure("storage_unavailable", "retry");
-      return matchesInput(saved.value, request)
+      if (!isHealthObservationForInput(saved.value, request)) {
+        return failure("storage_unavailable", "retry");
+      }
+      return saved.value.requestedUrl === request.url
         ? { ok: true, value: { id: saved.value.id } }
-        : failure("storage_unavailable", "retry");
+        : failure("input_conflict", "terminal");
     },
   };
 }

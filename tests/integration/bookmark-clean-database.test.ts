@@ -30,6 +30,11 @@ interface SqliteApi {
   DatabaseSync: new (location: string) => SqliteDatabase;
 }
 
+interface FileSystemApi {
+  chmodSync(path: string, mode: number): void;
+  statSync(path: string): { readonly mode: number };
+}
+
 interface TemporaryDatabase {
   readonly directory: string;
   readonly databasePath: string;
@@ -48,10 +53,12 @@ interface DatabaseRuntime {
 }
 
 declare const require: (specifier: string) => unknown;
+declare const process: { readonly platform: string };
 
 const load = require as unknown as (specifier: string) => unknown;
 const { test } = load("node:test") as NodeTestApi;
 const { DatabaseSync } = load("node:sqlite") as SqliteApi;
+const fileSystem = load("node:fs") as FileSystemApi;
 const { withTemporaryDatabase } = load(
   "../helpers/temporary-database.ts",
 ) as TemporaryDatabaseApi;
@@ -138,6 +145,12 @@ function assertUnavailable(
   );
 }
 
+function assertOwnerOnly(databasePath: string, message: string): void {
+  if (process.platform === "win32") return;
+  const mode = fileSystem.statSync(databasePath).mode & 0o777;
+  assert(mode === 0o600, `${message}: mode ${mode.toString(8)}`);
+}
+
 test("application session migrates real ports closes and reopens", async () => {
   assertDeepEqual(
     Object.keys(sqlitePublic),
@@ -148,6 +161,7 @@ test("application session migrates real ports closes and reopens", async () => {
   await withTemporaryDatabase(async ({ databasePath }) => {
     const opened = openBookmarkCleanDatabase(databasePath);
     assert(opened.ok, "Application database should open");
+    assertOwnerOnly(databasePath, "New application database was not owner-only");
 
     const savedSnapshot = snapshot();
     const savedObservation = observation();
@@ -182,8 +196,13 @@ test("application session migrates real ports closes and reopens", async () => {
       "Closed Health port should be unavailable",
     );
 
+    if (process.platform !== "win32") {
+      fileSystem.chmodSync(databasePath, 0o644);
+    }
+
     const reopened = openBookmarkCleanDatabase(databasePath);
     assert(reopened.ok, "Application database should reopen");
+    assertOwnerOnly(databasePath, "Existing application database was not tightened");
     const loadedSnapshot = await reopened.value.catalogStore.load(SNAPSHOT_ID);
     const loadedProgress = await reopened.value.jobQueueStore.readProgress(
       BATCH_ID,

@@ -22,22 +22,28 @@ interface ApprovedTarget {
 interface TargetResolver {
   resolve(url: string): Promise<
     | { readonly ok: true; readonly value: ApprovedTarget }
-    | { readonly ok: false; readonly error: { readonly code: "unsupported_url" } }
+    | { readonly ok: false; readonly error: { readonly code:
+      "unsupported_url" | "dns_failure" | "unknown_transport";
+    } }
   >;
 }
 interface ResolverApi { createHealthRequestTargetResolver(): TargetResolver; }
-interface NodeError extends Error { readonly code?: string; }
+interface ErrorClassifierApi {
+  mapNodeRequestError(
+    error: unknown,
+    protocol: ApprovedTarget["protocol"],
+  ): HealthTransportFailureCode;
+}
 interface IncomingMessage {
   readonly statusCode?: number;
   readonly headersDistinct?: Readonly<Record<string, readonly string[] | undefined>>;
   on(event: "data", listener: (chunk: Uint8Array) => void): this;
   on(event: "end" | "aborted", listener: () => void): this;
-  on(event: "error", listener: (error: NodeError) => void): this;
+  on(event: "error", listener: (error: unknown) => void): this;
   destroy(): void;
 }
 interface ClientRequest {
-  on(event: "error", listener: (error: NodeError) => void): this;
-  setTimeout(milliseconds: number, listener: () => void): this;
+  on(event: "error", listener: (error: unknown) => void): this;
   end(): void;
   destroy(): void;
 }
@@ -56,7 +62,8 @@ declare const require: (
     | "node:http"
     | "node:https"
     | "node:net"
-    | "./health-request-target-resolver.ts",
+    | "./health-request-target-resolver.ts"
+    | "./health-node-error-classifier.ts",
 ) => unknown;
 declare const module: {
   exports: { createNodeHealthTransport: typeof createNodeHealthTransport };
@@ -67,6 +74,9 @@ const net = require("node:net") as NetApi;
 const { createHealthRequestTargetResolver } = require(
   "./health-request-target-resolver.ts",
 ) as ResolverApi;
+const { mapNodeRequestError } = require(
+  "./health-node-error-classifier.ts",
+) as ErrorClassifierApi;
 
 const HEADER_NAMES: readonly HealthSelectedHeaderName[] = [
   "content-type", "location", "retry-after", "etag", "last-modified",
@@ -82,18 +92,6 @@ function failed(
   durationMs: number,
 ): Outcome<never, HealthTransportFailure> {
   return { ok: false, error: { code, durationMs } };
-}
-
-function mapError(
-  error: NodeError,
-  protocol: ApprovedTarget["protocol"],
-): HealthTransportFailureCode {
-  const code = error.code;
-  if (code === "ECONNREFUSED" || code === "ECONNRESET") return "connection_failure";
-  if (code?.startsWith("HPE_") === true) return "malformed_response";
-  if ((protocol === "https:" && code === "EPROTO") ||
-    code?.startsWith("ERR_SSL_") === true) return "tls_error";
-  return "unknown_transport";
 }
 
 function validRequest(value: HealthTransportRequest): boolean {
@@ -129,6 +127,11 @@ function selectedHeaders(
     selected.push({ name, value: values[0] });
   }
   return selected;
+}
+
+function isHttpStatus(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) &&
+    value >= 100 && value <= 599;
 }
 
 function concatenate(chunks: readonly Uint8Array[], length: number): Uint8Array {
@@ -187,56 +190,60 @@ function executeRequest(
 ): Promise<Outcome<HealthTransportResponse, HealthTransportFailure>> {
   return new Promise((resolve) => {
     let settled = false;
-    let request: ClientRequest;
+    let request: ClientRequest | undefined;
+    let response: IncomingMessage | undefined;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     const finish = (outcome: Outcome<HealthTransportResponse, HealthTransportFailure>) => {
       if (settled) return;
       settled = true;
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
       resolve(outcome);
     };
+    deadlineTimer = setTimeout(() => {
+      finish(failed("timeout", durationSince(startedAt)));
+      response?.destroy();
+      request?.destroy();
+    }, input.timeoutMs);
     const api = target.protocol === "https:" ? https : http;
-    request = api.request(requestOptions(target), (response) => {
-      const headers = selectedHeaders(response);
-      const statusCode = response.statusCode;
-      if (headers === undefined || !Number.isSafeInteger(statusCode) ||
-        (statusCode as number) < 100 || (statusCode as number) > 599) {
+    request = api.request(requestOptions(target), (incoming) => {
+      response = incoming;
+      const headers = selectedHeaders(incoming);
+      const statusCode = incoming.statusCode;
+      if (headers === undefined || !isHttpStatus(statusCode)) {
         finish(failed("malformed_response", durationSince(startedAt)));
-        response.destroy();
+        incoming.destroy();
         return;
       }
       const chunks: Uint8Array[] = [];
       let length = 0;
-      response.on("data", (chunk) => {
+      incoming.on("data", (chunk) => {
         if (settled) return;
         if (!(chunk instanceof Uint8Array) || length + chunk.byteLength > input.maxBodyBytes) {
           finish({ ok: true, value: {
             url: input.url, statusCode, headers,
             durationMs: durationSince(startedAt),
           } });
-          response.destroy();
+          incoming.destroy();
           return;
         }
         chunks.push(new Uint8Array(chunk));
         length += chunk.byteLength;
       });
-      response.on("end", () => finish({ ok: true, value: {
+      incoming.on("end", () => finish({ ok: true, value: {
         url: input.url, statusCode, headers,
         body: concatenate(chunks, length),
         durationMs: durationSince(startedAt),
       } }));
-      response.on("aborted", () => finish(failed(
+      incoming.on("aborted", () => finish(failed(
         "connection_failure", durationSince(startedAt),
       )));
-      response.on("error", (error) => finish(failed(
-        mapError(error, target.protocol), durationSince(startedAt),
+      incoming.on("error", (error) => finish(failed(
+        mapNodeRequestError(error, target.protocol), durationSince(startedAt),
       )));
     });
     request.on("error", (error) => finish(failed(
-      mapError(error, target.protocol), durationSince(startedAt),
+      mapNodeRequestError(error, target.protocol), durationSince(startedAt),
     )));
-    request.setTimeout(input.timeoutMs, () => {
-      finish(failed("timeout", durationSince(startedAt)));
-      request.destroy();
-    });
     request.end();
   });
 }
@@ -256,9 +263,16 @@ function createNodeHealthTransport(options: TransportOptions = {}): HealthTransp
         return failed("timeout", durationSince(startedAt));
       }
       if (resolution.kind === "rejected") {
-        return failed("unsupported_url", durationSince(startedAt));
+        return failed("unknown_transport", durationSince(startedAt));
       }
       const resolved = resolution.value as Awaited<ReturnType<TargetResolver["resolve"]>>;
+      if (resolved?.ok === false) {
+        const code = resolved.error?.code;
+        if (code === "unsupported_url" || code === "dns_failure" || code === "unknown_transport") {
+          return failed(code, durationSince(startedAt));
+        }
+        return failed("unknown_transport", durationSince(startedAt));
+      }
       if (!resolved || resolved.ok !== true || !validTarget(resolved.value)) {
         return failed("unsupported_url", durationSince(startedAt));
       }

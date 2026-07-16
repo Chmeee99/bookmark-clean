@@ -75,7 +75,7 @@ function close(server: HttpsServer, sockets: ReadonlySet<ServerSocket>): Promise
     error === undefined ? resolve() : reject(error)));
 }
 
-function runClient(helper: string, port: number, caPath: string): Promise<{
+function runClient(helper: string, port: number, caPath?: string): Promise<{
   readonly code: number | null;
   readonly stdout: string;
   readonly stderr: string;
@@ -118,6 +118,17 @@ test("validates controlled HTTPS while preserving Host and SNI", async () => {
   });
   const port = await listen(server);
   try {
+    const untrustedChild = await runClient(
+      path.resolve(root, "tests/helpers/health-https-client.ts"),
+      port,
+    );
+    assert(untrustedChild.code === 0, `Untrusted HTTPS child failed: ${untrustedChild.stderr}`);
+    assert(untrustedChild.stderr === "", `Untrusted HTTPS child wrote stderr: ${untrustedChild.stderr}`);
+    const untrusted = JSON.parse(untrustedChild.stdout) as Record<string, unknown>;
+    assert(untrusted.ok === false, "Untrusted certificate was accepted");
+    assert((untrusted.error as Record<string, unknown>)?.code === "tls_error",
+      `Untrusted certificate was misclassified: ${untrustedChild.stdout}`);
+
     const child = await runClient(
       path.resolve(root, "tests/helpers/health-https-client.ts"),
       port,

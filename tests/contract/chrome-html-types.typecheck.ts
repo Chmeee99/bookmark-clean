@@ -7,7 +7,10 @@ import type {
   ChromeHtmlImportFailureField,
   ChromeHtmlImportRequest,
 } from "../../adapters/chrome-html/public.js";
-import { parseBookmarksHtml } from "../../adapters/chrome-html/public.js";
+import {
+  CHROME_HTML_MAX_INPUT_BYTES,
+  parseBookmarksHtml,
+} from "../../adapters/chrome-html/public.js";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -19,9 +22,17 @@ type Assert<Condition extends true> = Condition;
 type FailureCodes = Assert<
   Equal<
     ChromeHtmlImportFailureCode,
-    "empty_input" | "missing_root_list" | "invalid_entry" | "invalid_timestamp"
+    | "empty_input"
+    | "missing_root_list"
+    | "invalid_entry"
+    | "invalid_timestamp"
+    | "invalid_encoding"
+    | "input_too_large"
+    | "node_limit_exceeded"
+    | "depth_limit_exceeded"
   >
 >;
+type InputByteLimit = Assert<Equal<typeof CHROME_HTML_MAX_INPUT_BYTES, 16_777_216>>;
 type FailureFields = Assert<
   Equal<
     ChromeHtmlImportFailureField,
@@ -54,6 +65,7 @@ request.document = {};
 failure.field = "parser_message";
 
 void (null as unknown as FailureCodes);
+void (null as unknown as InputByteLimit);
 void (null as unknown as FailureFields);
 void (null as unknown as ParseMethod);
 void (null as unknown as PublicParser);

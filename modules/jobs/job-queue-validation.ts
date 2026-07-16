@@ -132,6 +132,10 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+function isSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
+}
+
 function validateTarget(value: unknown): boolean {
   if (!isRecord(value) || !hasExactKeys(value, TARGET_KEYS)) {
     return false;
@@ -152,11 +156,11 @@ function validateEnqueueJob(
     !hasExactKeys(value, ENQUEUE_JOB_REQUIRED_KEYS, ["notBefore"]) ||
     value.type !== "health_check" ||
     !validateTarget(value.target) ||
-    !Number.isSafeInteger(value.priority) ||
-    !Number.isSafeInteger(value.sequence) ||
+    !isSafeInteger(value.priority) ||
+    !isSafeInteger(value.sequence) ||
     value.sequence < 0 ||
     sequences.has(value.sequence) ||
-    !Number.isSafeInteger(value.maxAttempts) ||
+    !isSafeInteger(value.maxAttempts) ||
     value.maxAttempts <= 0
   ) {
     return null;
@@ -273,7 +277,7 @@ function validateJobLease(
     !isNonEmptyString(input.batchId) ||
     input.type !== "health_check" ||
     !validateTarget(input.target) ||
-    !Number.isSafeInteger(input.attempt) ||
+    !isSafeInteger(input.attempt) ||
     input.attempt <= 0 ||
     !isCanonicalUtc(input.leasedAt) ||
     !isCanonicalUtc(input.expiresAt)
@@ -321,7 +325,7 @@ function addLeaseDuration(
   now: IsoDateTime,
   durationMs: unknown,
 ): IsoDateTime | null {
-  if (!Number.isSafeInteger(durationMs) || durationMs <= 0) {
+  if (!isSafeInteger(durationMs) || durationMs <= 0) {
     return null;
   }
   const startMs = Date.parse(now);

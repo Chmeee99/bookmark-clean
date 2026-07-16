@@ -34,6 +34,12 @@ interface ReconstructionApi {
   ): Outcome<BookmarkSnapshot, CatalogStorageFailure>;
 }
 
+interface InsertFrame {
+  readonly node: BookmarkRecord;
+  readonly parentId: string | null;
+  readonly siblingIndex: number;
+}
+
 declare const require: (specifier: "./catalog-snapshot-reconstruction.ts") => unknown;
 declare const module: {
   exports: {
@@ -86,31 +92,38 @@ function optionalSqlValue(value: IsoDateTime | undefined): string | null {
   return value === undefined ? null : value;
 }
 
-function insertNode(
+function insertNodes(
   statement: SqliteStatement,
   snapshotId: SnapshotId,
-  node: BookmarkRecord,
-  parentId: string | null,
-  siblingIndex: number,
+  roots: readonly BookmarkRecord[],
 ): void {
-  const isFolder = node.kind === "folder";
-  statement.run(
-    node.id,
-    snapshotId,
-    node.sourceId,
-    parentId,
-    siblingIndex,
-    node.kind,
-    node.title,
-    isFolder ? null : node.url,
-    optionalSqlValue(node.dateAdded),
-    optionalSqlValue(node.dateModified),
-    isFolder ? null : optionalSqlValue(node.dateLastUsed),
-  );
-
-  if (isFolder) {
-    for (let index = 0; index < node.children.length; index += 1) {
-      insertNode(statement, snapshotId, node.children[index], node.id, index);
+  const frames: InsertFrame[] = [];
+  for (let index = roots.length - 1; index >= 0; index -= 1) {
+    frames.push({ node: roots[index], parentId: null, siblingIndex: index });
+  }
+  while (frames.length > 0) {
+    const { node, parentId, siblingIndex } = frames.pop() as InsertFrame;
+    const isFolder = node.kind === "folder";
+    statement.run(
+      node.id,
+      snapshotId,
+      node.sourceId,
+      parentId,
+      siblingIndex,
+      node.kind,
+      node.title,
+      isFolder ? null : node.url,
+      optionalSqlValue(node.dateAdded),
+      optionalSqlValue(node.dateModified),
+      isFolder ? null : optionalSqlValue(node.dateLastUsed),
+    );
+    if (!isFolder) continue;
+    for (let index = node.children.length - 1; index >= 0; index -= 1) {
+      frames.push({
+        node: node.children[index],
+        parentId: node.id,
+        siblingIndex: index,
+      });
     }
   }
 }
@@ -146,9 +159,7 @@ function saveSnapshot(
       );
 
     const nodeStatement = database.prepare(NODE_INSERT);
-    for (let index = 0; index < snapshot.roots.length; index += 1) {
-      insertNode(nodeStatement, snapshot.id, snapshot.roots[index], null, index);
-    }
+    insertNodes(nodeStatement, snapshot.id, snapshot.roots);
 
     database.exec("COMMIT");
     transactionStarted = false;

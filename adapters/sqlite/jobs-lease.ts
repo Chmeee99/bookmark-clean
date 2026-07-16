@@ -77,12 +77,16 @@ function hasArrayShape(value: readonly unknown[]): boolean {
   });
 }
 
-function hasOwn(record: UnknownRecord, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function isSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
 }
 
 function isCanonicalUtc(value: unknown): value is IsoDateTime {
@@ -166,7 +170,7 @@ function leaseFromRow(row: SqliteRow, command: StoredLeaseCommand): JobLease {
     row.target_kind !== "bookmark" ||
     !isNonEmptyString(row.bookmark_id) ||
     !isNonEmptyString(row.input_version) ||
-    !Number.isSafeInteger(row.attempt) ||
+    !isSafeInteger(row.attempt) ||
     row.attempt < 0
   ) {
     throw new Error("Stored lease candidate row is invalid");

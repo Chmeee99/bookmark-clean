@@ -7,7 +7,9 @@ interface FixtureResponse {
     statusCode: number,
     headers?: Readonly<Record<string, string | readonly string[]>>,
   ): void;
+  write(body: string): boolean;
   end(body?: string): void;
+  on(event: "close", listener: () => void): this;
 }
 interface FixtureSocket {
   write(data: string): void;

@@ -129,6 +129,23 @@ function expectFailure(
   );
 }
 
+function bookmarkListHtml(nodeCount: number): string {
+  const entries = Array.from(
+    { length: nodeCount },
+    (_, index) =>
+      `<DT><A HREF="https://example.com/${index}">Bookmark ${index}</A></DT>`,
+  );
+  return `<DL>${entries.join("")}</DL>`;
+}
+
+function nestedFolderHtml(depth: number): string {
+  let childList = "<DL></DL>";
+  for (let level = depth; level >= 1; level -= 1) {
+    childList = `<DL><DT><H3>Folder ${level}</H3></DT>${childList}</DL>`;
+  }
+  return childList;
+}
+
 test("fixtures map exactly and deterministically to valid Catalog input", () => {
   FIXTURES.forEach((path, index) => {
     const request = { html: readFileSync(path, "utf8"), capturedAt: CAPTURED_AT };
@@ -208,4 +225,52 @@ test("unclosed unambiguous lists recover without invented values", () => {
     title: "Recovered",
     url: "https://example.com/",
   }, "Recovered values changed");
+});
+
+test("UTF-8 byte limits are inclusive and checked before parsing", () => {
+  expectFailure(" ".repeat(16_777_216), "empty_input", [], "html");
+  expectFailure(" ".repeat(16_777_217), "input_too_large", [], "html");
+});
+
+test("semantic node and depth limits return exact source failures", () => {
+  assertValid(parseBookmarksHtml({
+    html: bookmarkListHtml(20_000),
+    capturedAt: CAPTURED_AT,
+  }));
+  expectFailure(
+    bookmarkListHtml(20_001),
+    "node_limit_exceeded",
+    [20_000],
+    "entry",
+  );
+
+  assertValid(parseBookmarksHtml({
+    html: nestedFolderHtml(256),
+    capturedAt: CAPTURED_AT,
+  }));
+  expectFailure(
+    nestedFolderHtml(257),
+    "depth_limit_exceeded",
+    Array.from({ length: 257 }, () => 0),
+    "entry",
+  );
+});
+
+test("deep non-semantic DOM and title traversal do not use the call stack", () => {
+  const wrappers = "<div>".repeat(4_000);
+  const wrapperEnds = "</div>".repeat(4_000);
+  const wrappedRoot = parseBookmarksHtml({
+    html: `${wrappers}<DL></DL>${wrapperEnds}`,
+    capturedAt: CAPTURED_AT,
+  });
+  assertValid(wrappedRoot);
+
+  const spans = "<span>".repeat(4_000);
+  const spanEnds = "</span>".repeat(4_000);
+  const deepTitle = parseBookmarksHtml({
+    html: `<DL><DT><A HREF="https://example.com/">${spans}Deep${spanEnds}</A></DT></DL>`,
+    capturedAt: CAPTURED_AT,
+  });
+  assertValid(deepTitle);
+  assert(deepTitle.value.roots[0].title === "Deep", "Deep title text order changed");
 });

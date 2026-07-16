@@ -25,7 +25,12 @@ interface ChildProcessApi {
 }
 
 interface FileSystemApi {
-  writeFileSync(path: string, contents: string, encoding: "utf8"): void;
+  existsSync(path: string): boolean;
+  writeFileSync(
+    path: string,
+    contents: string | Uint8Array,
+    encoding?: "utf8",
+  ): void;
 }
 
 interface PathApi {
@@ -70,7 +75,7 @@ declare const require: (specifier: string) => unknown;
 const loadModule = require as unknown as (specifier: string) => unknown;
 const { test } = loadModule("node:test") as NodeTestApi;
 const { spawnSync } = loadModule("node:child_process") as ChildProcessApi;
-const { writeFileSync } = loadModule("node:fs") as FileSystemApi;
+const { existsSync, writeFileSync } = loadModule("node:fs") as FileSystemApi;
 const { join } = loadModule("node:path") as PathApi;
 const processApi = loadModule("node:process") as ProcessApi;
 const packageJson = loadModule("../../package.json") as PackageJson;
@@ -236,6 +241,52 @@ test("typed parser rejection preserves structured fields without diagnostics", (
       "",
       '{"ok":false,"code":"import_failed","stage":"source","failureCode":"empty_input","path":[],"field":"html"}\n',
     );
+  } finally {
+    temporary.cleanup();
+  }
+});
+
+test("oversized input fails before the database is opened", () => {
+  const temporary = createTemporaryDatabase("bookmark-clean-cli-oversized-");
+  try {
+    const oversizedInput = join(temporary.directory, "oversized.html");
+    writeFileSync(oversizedInput, " ".repeat(16_777_217), "utf8");
+    assertProcessResult(
+      runCli([
+        "--input",
+        oversizedInput,
+        "--database",
+        temporary.databasePath,
+      ]),
+      5,
+      "",
+      '{"ok":false,"code":"import_failed","stage":"source","failureCode":"input_too_large","path":[],"field":"html"}\n',
+    );
+    assert(!existsSync(temporary.databasePath), "Oversized input opened the database");
+  } finally {
+    temporary.cleanup();
+  }
+});
+
+test("malformed UTF-8 fails before the database is opened", () => {
+  const temporary = createTemporaryDatabase("bookmark-clean-cli-encoding-");
+  try {
+    const malformedInput = join(temporary.directory, "malformed.html");
+    writeFileSync(malformedInput, new Uint8Array([
+      0x3c, 0x44, 0x4c, 0x3e, 0xc3, 0x28, 0x3c, 0x2f, 0x44, 0x4c, 0x3e,
+    ]));
+    assertProcessResult(
+      runCli([
+        "--input",
+        malformedInput,
+        "--database",
+        temporary.databasePath,
+      ]),
+      5,
+      "",
+      '{"ok":false,"code":"import_failed","stage":"source","failureCode":"invalid_encoding","path":[],"field":"html"}\n',
+    );
+    assert(!existsSync(temporary.databasePath), "Malformed input opened the database");
   } finally {
     temporary.cleanup();
   }

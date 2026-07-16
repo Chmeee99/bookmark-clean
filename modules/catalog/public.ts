@@ -17,6 +17,35 @@ export interface BookmarkCatalog {
   ): Promise<Outcome<BookmarkLinkRecord | null, CatalogStorageFailure>>;
 }
 
+export interface CatalogInspectionFolder {
+  readonly id: BookmarkId;
+  readonly title: string;
+  readonly bookmarkCount: number;
+  readonly folders: readonly CatalogInspectionFolder[];
+}
+
+export interface CatalogInspection {
+  readonly snapshotId: SnapshotId;
+  readonly capturedAt: IsoDateTime;
+  readonly rootCount: number;
+  readonly folderCount: number;
+  readonly bookmarkCount: number;
+  readonly folders: readonly CatalogInspectionFolder[];
+}
+
+export interface CatalogInspector {
+  inspectSnapshot(
+    id: SnapshotId,
+  ): Promise<Outcome<CatalogInspection | null, CatalogStorageFailure>>;
+}
+
+export interface CatalogResourceLimits {
+  readonly maximumNodes: 20_000;
+  readonly maximumDepth: 256;
+}
+
+export declare const CATALOG_RESOURCE_LIMITS: CatalogResourceLimits;
+
 export type BookmarkSource = "chrome_api" | "chrome_html";
 
 export interface BookmarkSnapshotInput {
@@ -90,7 +119,9 @@ export type CatalogImportFailureCode =
   | "duplicate_source_id"
   | "invalid_date"
   | "empty_url"
-  | "cyclic_tree";
+  | "cyclic_tree"
+  | "node_limit_exceeded"
+  | "depth_limit_exceeded";
 
 export type CatalogImportFailureField =
   | "capturedAt"
@@ -147,6 +178,10 @@ export declare function createBookmarkCatalog(
   dependencies: CatalogServiceDependencies,
 ): BookmarkCatalog;
 
+export declare function createCatalogInspector(
+  catalog: Pick<BookmarkCatalog, "getSnapshot">,
+): CatalogInspector;
+
 export declare function createCryptoCatalogIdFactory(): CatalogIdFactory;
 
 interface CatalogServiceRuntime {
@@ -157,24 +192,46 @@ interface CatalogIdFactoryRuntime {
   createCryptoCatalogIdFactory: typeof createCryptoCatalogIdFactory;
 }
 
+interface CatalogInspectorRuntime {
+  createCatalogInspector: typeof createCatalogInspector;
+}
+
+interface CatalogResourceLimitsRuntime {
+  CATALOG_RESOURCE_LIMITS: CatalogResourceLimits;
+}
+
 declare const require: (
-  specifier: "./catalog-service.ts" | "./crypto-id-factory.ts",
+  specifier:
+    | "./catalog-resource-limits.ts"
+    | "./catalog-service.ts"
+    | "./catalog-inspector.ts"
+    | "./crypto-id-factory.ts",
 ) => unknown;
 declare const module: {
   exports: {
+    CATALOG_RESOURCE_LIMITS: typeof CATALOG_RESOURCE_LIMITS;
     createBookmarkCatalog: typeof createBookmarkCatalog;
+    createCatalogInspector: typeof createCatalogInspector;
     createCryptoCatalogIdFactory: typeof createCryptoCatalogIdFactory;
   };
 };
 
+const { CATALOG_RESOURCE_LIMITS: catalogResourceLimitsRuntime } = require(
+  "./catalog-resource-limits.ts",
+) as CatalogResourceLimitsRuntime;
 const { createBookmarkCatalog: createBookmarkCatalogRuntime } = require(
   "./catalog-service.ts",
 ) as CatalogServiceRuntime;
+const { createCatalogInspector: createCatalogInspectorRuntime } = require(
+  "./catalog-inspector.ts",
+) as CatalogInspectorRuntime;
 const { createCryptoCatalogIdFactory: createCryptoCatalogIdFactoryRuntime } = require(
   "./crypto-id-factory.ts",
 ) as CatalogIdFactoryRuntime;
 
 module.exports = {
+  CATALOG_RESOURCE_LIMITS: catalogResourceLimitsRuntime,
   createBookmarkCatalog: createBookmarkCatalogRuntime,
+  createCatalogInspector: createCatalogInspectorRuntime,
   createCryptoCatalogIdFactory: createCryptoCatalogIdFactoryRuntime,
 };

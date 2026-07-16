@@ -1,10 +1,10 @@
 import type { SnapshotId } from "../../core/contracts/public.js";
 import type {
   BookmarkCatalog,
-  BookmarkFolderRecord,
-  BookmarkRecord,
-  BookmarkSnapshot,
   CatalogIdFactory,
+  CatalogInspection,
+  CatalogInspectionFolder,
+  CatalogInspector,
   CatalogStorageFailure,
 } from "../../modules/catalog/public.js";
 import type {
@@ -55,6 +55,9 @@ interface CatalogRuntime {
     readonly idFactory: CatalogIdFactory;
     readonly store: CatalogDatabaseSession["store"];
   }): BookmarkCatalog;
+  createCatalogInspector(
+    catalog: Pick<BookmarkCatalog, "getSnapshot">,
+  ): CatalogInspector;
   createCryptoCatalogIdFactory(): CatalogIdFactory;
 }
 
@@ -69,9 +72,16 @@ interface InspectOptions {
   readonly snapshotId: string;
 }
 
-interface ProjectedRecords {
-  readonly folders: readonly InspectFolder[];
-  readonly bookmarkCount: number;
+interface MutableInspectFolder {
+  id: string;
+  title: string;
+  bookmarkCount: number;
+  children: InspectFolder[];
+}
+
+interface FormatFrame {
+  readonly source: CatalogInspectionFolder;
+  readonly target: InspectFolder[];
 }
 
 declare const require: (specifier: string) => unknown;
@@ -82,6 +92,7 @@ declare const module: {
 const loadModule = require as unknown as (specifier: string) => unknown;
 const {
   createBookmarkCatalog,
+  createCatalogInspector,
   createCryptoCatalogIdFactory,
 } = loadModule("../../modules/catalog/public.ts") as CatalogRuntime;
 const { openCatalogDatabase } = loadModule(
@@ -117,45 +128,40 @@ function failure(
   return { exitCode, output: { ok: false, code } };
 }
 
-function projectRecords(records: readonly BookmarkRecord[]): ProjectedRecords {
-  const folders: InspectFolder[] = [];
-  let bookmarkCount = 0;
-
-  for (const record of records) {
-    if (record.kind === "bookmark") {
-      bookmarkCount += 1;
-      continue;
-    }
-
-    const projected = projectFolder(record);
-    bookmarkCount += projected.bookmarkCount;
-    folders.push(projected);
+function formatFolders(folders: readonly CatalogInspectionFolder[]): InspectFolder[] {
+  const formatted: InspectFolder[] = [];
+  const frames: FormatFrame[] = [];
+  for (let index = folders.length - 1; index >= 0; index -= 1) {
+    frames.push({ source: folders[index], target: formatted });
   }
-
-  return { folders, bookmarkCount };
+  while (frames.length > 0) {
+    const { source, target } = frames.pop() as FormatFrame;
+    const children: InspectFolder[] = [];
+    const folder: MutableInspectFolder = {
+      id: source.id,
+      title: source.title,
+      bookmarkCount: source.bookmarkCount,
+      children,
+    };
+    target.push(folder);
+    for (let index = source.folders.length - 1; index >= 0; index -= 1) {
+      frames.push({ source: source.folders[index], target: children });
+    }
+  }
+  return formatted;
 }
 
-function projectFolder(folder: BookmarkFolderRecord): InspectFolder {
-  const children = projectRecords(folder.children);
-  return {
-    id: folder.id,
-    title: folder.title,
-    bookmarkCount: children.bookmarkCount,
-    children: children.folders,
-  };
-}
-
-function success(snapshot: BookmarkSnapshot): InspectCommandResult {
+function success(inspection: CatalogInspection): InspectCommandResult {
   return {
     exitCode: 0,
     output: {
       ok: true,
-      snapshotId: snapshot.id,
-      capturedAt: snapshot.capturedAt,
-      rootCount: snapshot.rootCount,
-      folderCount: snapshot.folderCount,
-      bookmarkCount: snapshot.bookmarkCount,
-      folders: projectRecords(snapshot.roots).folders,
+      snapshotId: inspection.snapshotId,
+      capturedAt: inspection.capturedAt,
+      rootCount: inspection.rootCount,
+      folderCount: inspection.folderCount,
+      bookmarkCount: inspection.bookmarkCount,
+      folders: formatFolders(inspection.folders),
     },
   };
 }
@@ -183,7 +189,8 @@ const runInspectCommand: RunInspectCommand = async (arguments_) => {
       idFactory: createCryptoCatalogIdFactory(),
       store: opened.value.store,
     });
-    const loaded = await catalog.getSnapshot(options.snapshotId as SnapshotId);
+    const inspector = createCatalogInspector(catalog);
+    const loaded = await inspector.inspectSnapshot(options.snapshotId as SnapshotId);
     if (!loaded.ok) return catalogFailure(loaded.error);
     if (loaded.value === null) return failure(6, "snapshot_not_found");
     return success(loaded.value);

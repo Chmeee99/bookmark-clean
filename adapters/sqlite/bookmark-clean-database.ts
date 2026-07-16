@@ -73,6 +73,9 @@ const { createSqliteJobQueueStore } = load(
 const { createSqliteHealthObservationStore } = load(
   "./health-observation-store.ts",
 ) as HealthStoreApi;
+const { preparePrivateDatabaseFile } = load(
+  "./private-database-file.ts",
+) as { preparePrivateDatabaseFile(databasePath: string): boolean };
 
 function unavailable(): Outcome<never, BookmarkCleanDatabaseFailure> {
   return { ok: false, error: { code: "storage_unavailable" } };
@@ -103,15 +106,17 @@ function openBookmarkCleanDatabase(
 ): Outcome<BookmarkCleanDatabaseSession, BookmarkCleanDatabaseFailure> {
   let database: SqliteDatabase | undefined;
   try {
-    database = new DatabaseSync(databasePath);
-    if (!migrationsSucceeded(database)) {
-      closeBestEffort(database);
+    if (!preparePrivateDatabaseFile(databasePath)) return unavailable();
+    const openedDatabase = new DatabaseSync(databasePath);
+    database = openedDatabase;
+    if (!migrationsSucceeded(openedDatabase)) {
+      closeBestEffort(openedDatabase);
       return unavailable();
     }
 
-    const catalogStore = createSqliteCatalogSnapshotStore(database);
-    const jobQueueStore = createSqliteJobQueueStore(database);
-    const healthRepository = createSqliteHealthObservationStore(database);
+    const catalogStore = createSqliteCatalogSnapshotStore(openedDatabase);
+    const jobQueueStore = createSqliteJobQueueStore(openedDatabase);
+    const healthRepository = createSqliteHealthObservationStore(openedDatabase);
     let closed = false;
     return {
       ok: true,
@@ -121,7 +126,7 @@ function openBookmarkCleanDatabase(
         healthRepository,
         close() {
           if (closed) return;
-          database.close();
+          openedDatabase.close();
           closed = true;
         },
       },

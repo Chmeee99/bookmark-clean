@@ -173,6 +173,51 @@ function nestedSnapshot(id = "snapshot:nested"): BookmarkSnapshot {
   };
 }
 
+function flatSnapshot(id: string, nodeCount: number): BookmarkSnapshot {
+  return {
+    ...emptySnapshot(id),
+    roots: Array.from({ length: nodeCount }, (_, index) =>
+      bookmark(
+        `bookmark:${id}:${index}`,
+        `source:${index}`,
+        `Bookmark ${index}`,
+        `https://example.com/${index}`,
+      )),
+    rootCount: nodeCount,
+    bookmarkCount: nodeCount,
+  };
+}
+
+function deepSnapshot(id: string, depth: number): BookmarkSnapshot {
+  let node: BookmarkRecord | undefined;
+  for (let level = depth; level >= 1; level -= 1) {
+    node = {
+      id: `bookmark:${id}:${level}` as never,
+      kind: "folder",
+      sourceId: `source:${level}`,
+      title: `Folder ${level}`,
+      children: node === undefined ? [] : [node],
+    };
+  }
+  assert(node !== undefined, "Expected a non-empty deep snapshot");
+  return {
+    ...emptySnapshot(id),
+    roots: [node],
+    rootCount: 1,
+    folderCount: depth,
+  };
+}
+
+function loadedDepth(snapshot: BookmarkSnapshot): number {
+  let depth = 0;
+  let node = snapshot.roots[0];
+  while (node?.kind === "folder") {
+    depth += 1;
+    node = node.children[0];
+  }
+  return depth;
+}
+
 test("fresh and repeated migrations create the exact catalog schema once", async () => {
   await withDatabase(async (database) => {
     const beforeMigration = createSqliteCatalogSnapshotStore(database);
@@ -414,6 +459,54 @@ test("corrupt stored counts are rejected without repair", async () => {
 
     const row = database.prepare("SELECT folder_count FROM catalog_snapshots WHERE id = ?").get(snapshot.id);
     assertEqual(row?.folder_count, snapshot.folderCount + 1, "Corrupt count was repaired");
+  });
+});
+
+test("Catalog storage round-trips the inclusive node and depth boundaries", async () => {
+  await withDatabase(async (database) => {
+    migrate(database);
+    const store = createSqliteCatalogSnapshotStore(database);
+
+    const maximumDepth = deepSnapshot("snapshot:max-depth", 256);
+    assert((await store.save(maximumDepth)).ok, "Maximum-depth snapshot should save");
+    const loadedDepthSnapshot = await store.load(maximumDepth.id);
+    assert(
+      loadedDepthSnapshot.ok && loadedDepthSnapshot.value !== null,
+      "Maximum-depth snapshot should load",
+    );
+    assertEqual(loadedDepth(loadedDepthSnapshot.value), 256, "Stored depth changed");
+
+    const maximumNodes = flatSnapshot("snapshot:max-nodes", 20_000);
+    assert((await store.save(maximumNodes)).ok, "Maximum-node snapshot should save");
+    const loadedNodes = await store.load(maximumNodes.id);
+    assert(
+      loadedNodes.ok && loadedNodes.value !== null,
+      "Maximum-node snapshot should load",
+    );
+    assertEqual(loadedNodes.value.roots.length, 20_000, "Stored node count changed");
+  });
+});
+
+test("Catalog storage rejects limit-plus-one stored graphs without repair", async () => {
+  await withDatabase(async (database) => {
+    migrate(database);
+    const store = createSqliteCatalogSnapshotStore(database);
+
+    const tooDeep = deepSnapshot("snapshot:too-deep", 257);
+    assert((await store.save(tooDeep)).ok, "Direct over-depth fixture should save");
+    assertStorageFailure(
+      await store.load(tooDeep.id),
+      "stored_snapshot_invalid",
+      "Over-depth stored snapshot",
+    );
+
+    const tooManyNodes = flatSnapshot("snapshot:too-many-nodes", 20_001);
+    assert((await store.save(tooManyNodes)).ok, "Direct over-node fixture should save");
+    assertStorageFailure(
+      await store.load(tooManyNodes.id),
+      "stored_snapshot_invalid",
+      "Over-node stored snapshot",
+    );
   });
 });
 

@@ -1,11 +1,11 @@
 # Bookmark Clean module map
 
 Status: current boundaries plus deferred targets
-Date: 2026-07-15
+Date: 2026-07-16
 
 ## System shape
 
-Bookmark Clean is a local application with a thin Chrome connector. The first runnable surface is a local import CLI. A small orchestration core coordinates use cases through module contracts. Runtime modules own domain behavior. Adapters own SQLite, LM Studio, HTTP, HTML extraction, Chrome, and browser-specific details.
+Bookmark Clean is currently a local CLI backed by Catalog, Processing, Jobs, and Health modules. A small orchestration core coordinates the import use case through module contracts. Runtime modules own domain behavior. Adapters own SQLite, Node networking, and Chrome HTML parsing. A local service, web UI, Chrome connector, extraction, enrichment, retrieval, review, model-provider, and browser-fetch adapters remain target architecture. They are not executable code.
 
 No module may import another module's internal files. Each module exposes one `public.ts` entry point containing its contract and public value types. Shared primitives are limited to opaque IDs, timestamps, result types, and version identifiers.
 
@@ -39,6 +39,15 @@ tests/
   integration/
   fixtures/
 ```
+
+### Implementation status index
+
+| Status | Modules and surfaces |
+| --- | --- |
+| CURRENT | `apps/local-cli`, `core/contracts`, `core/orchestrator`, `modules/catalog`, `modules/processing`, `modules/jobs`, `modules/health`, `adapters/chrome-html`, `adapters/node`, `adapters/sqlite` |
+| TARGET | `apps/local-service`, `apps/web-ui`, `apps/chrome-extension`, `modules/extraction`, `modules/enrichment`, `modules/retrieval`, `modules/review`, `adapters/lm-studio`, `adapters/web-fetch`, `adapters/chrome-bridge` |
+
+Sections for TARGET modules describe intended contracts and placement only. They are not evidence that the module exists or that a workflow is runnable. Capability briefs and the contract changelog record the implemented increments.
 
 ## Shared contract types
 
@@ -120,6 +129,35 @@ interface BookmarkCatalog {
   ): Promise<Outcome<BookmarkLinkRecord | null, CatalogStorageFailure>>;
 }
 
+interface CatalogInspectionFolder {
+  readonly id: BookmarkId;
+  readonly title: string;
+  readonly bookmarkCount: number;
+  readonly folders: readonly CatalogInspectionFolder[];
+}
+
+interface CatalogInspection {
+  readonly snapshotId: SnapshotId;
+  readonly capturedAt: IsoDateTime;
+  readonly rootCount: number;
+  readonly folderCount: number;
+  readonly bookmarkCount: number;
+  readonly folders: readonly CatalogInspectionFolder[];
+}
+
+interface CatalogInspector {
+  inspectSnapshot(
+    id: SnapshotId,
+  ): Promise<Outcome<CatalogInspection | null, CatalogStorageFailure>>;
+}
+
+interface CatalogResourceLimits {
+  readonly maximumNodes: 20_000;
+  readonly maximumDepth: 256;
+}
+
+declare const CATALOG_RESOURCE_LIMITS: CatalogResourceLimits;
+
 type BookmarkSource = "chrome_api" | "chrome_html";
 
 interface BookmarkSnapshotInput {
@@ -193,7 +231,9 @@ type CatalogImportFailureCode =
   | "duplicate_source_id"
   | "invalid_date"
   | "empty_url"
-  | "cyclic_tree";
+  | "cyclic_tree"
+  | "node_limit_exceeded"
+  | "depth_limit_exceeded";
 
 type CatalogImportFailureField =
   | "capturedAt"
@@ -250,6 +290,10 @@ declare function createBookmarkCatalog(
   dependencies: CatalogServiceDependencies,
 ): BookmarkCatalog;
 
+declare function createCatalogInspector(
+  catalog: Pick<BookmarkCatalog, "getSnapshot">,
+): CatalogInspector;
+
 declare function createCryptoCatalogIdFactory(): CatalogIdFactory;
 ```
 
@@ -261,6 +305,8 @@ Import contract rules:
 - Dates are optional canonical UTC `IsoDateTime` values. Raw HTML timestamp strings belong to the HTML adapter and never cross this boundary.
 - Original source values and child order are immutable. `diagnostic` is optional debugging evidence and must never be parsed for meaning or used to repair an invalid input.
 - `rootCount`, `folderCount`, and `bookmarkCount` are exact non-negative counts. Folder and bookmark counts include descendants; root count is `roots.length`.
+- `CATALOG_RESOURCE_LIMITS` is the fixed first-horizon structural policy. `maximumNodes` counts folders plus bookmarks across all roots and is inclusive. `maximumDepth` is inclusive with each root at depth 1. Empty input has depth 0.
+- Catalog is the receiving-boundary authority for the structural policy. It rejects the first depth-first node beyond 20,000 with `node_limit_exceeded` and the first node deeper than 256 with `depth_limit_exceeded`; the failure path identifies that node. When the same node violates both limits, depth is checked first and `depth_limit_exceeded` wins. Source adapters may reject earlier against the same public limits but may not widen them.
 
 Service and persistence rules:
 
@@ -271,11 +317,11 @@ Service and persistence rules:
 - Catalog returns storage failures unchanged and never returns an import summary after failed storage. Optional storage diagnostics are debugging evidence only and cannot drive branching, repair, retry, or fallback.
 - SQL errors, rows, transaction handles, and database exceptions never cross the port. Storage adapters translate expected engine failures into fixed codes without parsing error prose downstream.
 
-Hides: source-ID indexing, snapshot construction, validation traversal, count traversal, and hierarchy queries.
+Hides: source-ID indexing, snapshot construction, validation traversal, count traversal, raw snapshot hierarchy queries, and inspection projection traversal.
 
 Allowed dependencies: shared contract types. The runtime Catalog service may depend on `CatalogSnapshotStore` and `CatalogIdFactory`; adapters implement those ports without importing Catalog internals.
 
-Boundary notes: adapters produce `BookmarkSnapshotInput` and may not decide catalog identity. The catalog validates input, requests local IDs, constructs immutable records, and returns typed validation or storage failures. Chrome IDs are source identifiers, not permanent global identity. `getBookmark` is the narrow lookup required by bookmark job handlers; scoped listing, reconciliation, and cross-snapshot identity reuse remain deferred. No caller may reach into catalog internals. Migration order for the lookup is executable public types first, Catalog service second, and SQLite store implementation third.
+Boundary notes: adapters produce `BookmarkSnapshotInput` and may not decide catalog identity. The catalog validates input, requests local IDs, constructs immutable records, and returns typed validation or storage failures. Chrome IDs are source identifiers, not permanent global identity. `getBookmark` is the narrow lookup required by bookmark job handlers. `CatalogInspector` is the folder-only read projection for presentation consumers: root bookmarks contribute to snapshot totals but never appear in `folders`, folder order is preserved, and `bookmarkCount` is descendant-only for each folder. Every returned snapshot and inspection satisfies `CATALOG_RESOURCE_LIMITS`; a persistence adapter returns `stored_snapshot_invalid` for stored rows that exceed the structural policy. Reconciliation and cross-snapshot identity reuse remain deferred. No caller may reach into catalog internals. Migration order for inspection is the additive executable contract first, Catalog producer second, then Local CLI consumer migration.
 
 ## Chrome HTML adapter
 
@@ -295,11 +341,17 @@ interface ChromeHtmlImportRequest {
   readonly capturedAt: IsoDateTime;
 }
 
+declare const CHROME_HTML_MAX_INPUT_BYTES: 16_777_216;
+
 type ChromeHtmlImportFailureCode =
   | "empty_input"
   | "missing_root_list"
   | "invalid_entry"
-  | "invalid_timestamp";
+  | "invalid_timestamp"
+  | "invalid_encoding"
+  | "input_too_large"
+  | "node_limit_exceeded"
+  | "depth_limit_exceeded";
 
 type ChromeHtmlImportFailureField =
   | "html"
@@ -323,19 +375,22 @@ declare function parseBookmarksHtml(
 Import contract rules:
 
 - The adapter accepts text already read by the caller. It never opens files, fetches bookmark URLs, executes source content, or invokes Chrome.
+- File-reading consumers must decode source bytes as fatal UTF-8 before passing text to the adapter. Malformed UTF-8 fails with `invalid_encoding`; consumers must not persist replacement characters synthesized by a permissive decoder.
+- `CHROME_HTML_MAX_INPUT_BYTES` is an inclusive 16 MiB UTF-8 limit checked before `parse5` receives the string. The Local CLI consumes the same public constant and reads at most one byte beyond it so an oversized file cannot be fully materialized before rejection.
 - The first top-level bookmark `DL` is the export root. A missing root list fails with `missing_root_list`; a whitespace-only input fails with `empty_input`. An empty root list is valid.
 - Direct semantic entries under a list are folders represented by `H3` plus their following child `DL`, or bookmarks represented by `A`. A semantic entry that cannot be represented without guessing fails with `invalid_entry`; parser recovery is not treated as permission to invent hierarchy.
 - Titles are decoded text content in document order. URL values are decoded `HREF` attribute values. Empty titles and non-empty URL strings of every scheme pass unchanged.
 - `ADD_DATE`, `LAST_MODIFIED`, and `LAST_VISIT`, when present, must contain base-10 non-negative integer epoch seconds that convert to a valid canonical UTC timestamp. Invalid values fail with `invalid_timestamp`; absent values remain absent.
 - Semantic sibling position produces `path`. The adapter creates a non-empty source ID from that path, deterministic for the same parsed tree and unique within one output. The literal encoding is private and is not stable identity across snapshots.
 - Output source is always `chrome_html`, capture time comes from the request unchanged, and hierarchy is represented only by `roots` and folder `children`.
+- Semantic folders and bookmarks are counted against `CATALOG_RESOURCE_LIMITS` while the adapter builds output. The adapter returns the matching typed node or depth failure at the first offending depth-first path. Catalog independently enforces the same structural policy at its receiving boundary.
 - `diagnostic` is optional debugging evidence. Callers must not parse it for meaning or use it to repair a failure.
 
 Hides: `parse5` tree types, HTML recovery details, attribute lookup, timestamp conversion, text traversal, and source-ID encoding.
 
 Allowed dependencies: shared contract types, Catalog public input types, and the parser API approved in ADR 0004.
 
-Boundary notes: this adapter produces Catalog input but does not allocate `BookmarkId` or `SnapshotId`, validate catalog identity, normalize URLs, deduplicate entries, or persist data. Catalog validation remains the receiving boundary. Adding a new failure code or changing timestamp and hierarchy semantics requires a separate contract slice.
+Boundary notes: this adapter produces Catalog input but does not allocate `BookmarkId` or `SnapshotId`, validate catalog identity, normalize URLs, deduplicate entries, or persist data. It owns the HTML byte ceiling and early source rejection; Catalog remains the structural receiving boundary. Adding a new failure code or changing timestamp and hierarchy semantics requires a separate contract slice.
 
 ## Processing module
 
@@ -1047,6 +1102,7 @@ interface StalenessAssessment {
 Observation and idempotency rules:
 
 - `check` requires non-empty bookmark ID, input version, and URL. Timeout and body limits are positive safe integers and `maxRedirects` is exactly five. Every clock value, ID, transport fact, and repository result is validated at its receiving boundary.
+- A repository observation is valid only when its facts form one coherent checker result: `retryCount` is zero; redirect hops are contiguous from `requestedUrl` and contain at most five entries; response facts end at the final hop URL and agree with deterministic classification; transport failures carry the matching status and error code without response-only fields; redirect errors carry the matching redirect response facts. Structurally valid but contradictory observations fail closed.
 - `(bookmarkId, inputVersion)` is the immutable idempotency key for one requested check. `check` loads it before allocating an ID or calling transport. An existing observation with the exact requested URL returns unchanged. Reusing the key for a different URL returns terminal `input_conflict`. A later scheduled check must use a new input version.
 - `saveIfAbsent` atomically inserts by that key. A concurrent identical observation returns the stored row. A different observation for the same key returns `observation_conflict`; local code never merges or repairs it.
 - Expected network outcomes, including timeout, DNS, TLS, unsupported URL, malformed response, and connection failure, produce durable observations and successful `check` outcomes. Invalid requests, input conflicts, invalid configuration, and unavailable IDs are terminal. Unavailable clock, transport, and storage dependencies are retryable. Repository `observation_conflict` maps to terminal `input_conflict`; repository unavailability maps to retry `storage_unavailable`. Diagnostics remain opaque evidence.
@@ -1058,6 +1114,7 @@ Transport and request-safety rules:
 - `HealthTransport` executes one request with redirects disabled. The Health service walks redirects itself so every hop is recorded and bounded.
 - `HealthTransportRequest.timeoutMs` is the deadline for one complete transport call, including target resolution and the socket exchange. A resolution that misses the deadline returns `timeout`; its late result cannot start a request. Reported duration includes resolution time.
 - The production transport accepts only HTTP and HTTPS URLs without credentials. Before every request, including redirect targets, it resolves the host, rejects loopback/private/link-local/multicast/unspecified destinations by default, pins the approved address for the connection, and preserves the original host for HTTP/TLS verification. Any unresolved or mixed public/private target is rejected as `unsupported_url`. These checks cannot be disabled by page content or redirects.
+- IPv4 eligibility follows the IANA IPv4 Special-Purpose Address Registry. Non-global ranges are rejected, including deprecated 6to4 relay addresses; registry-declared globally reachable exceptions inside otherwise special ranges remain eligible.
 - Test transports may explicitly allow loopback fixtures. That permission is injected in tests and never becomes a user URL rule.
 - Transport adapters author `HealthTransportFailureCode` from structured runtime facts. Unknown Node `TypeError` cases remain `unknown_transport` until typed cause fixtures prove a narrower mapping. Exception messages, socket prose, and traces never select a code.
 - Headers are lower-case, deduplicated, and restricted to `HealthSelectedHeaderName`. Header/body values are evidence only. Bodies are capped before allocation beyond `maxBodyBytes`; the observation stores only a fingerprint.
@@ -1570,6 +1627,9 @@ To add a new provider, source, extractor, or review policy:
 - RESOLVED for first import: Catalog owns `CatalogSnapshotStore`, `CatalogIdFactory`, and typed storage failures. SQLite implements storage mechanics only; executable type migration and Catalog service implementation precede the SQLite store.
 - RESOLVED for first runnable import: `apps/local-cli` owns files and process behavior, `core/orchestrator` owns parse-then-import sequencing, and the SQLite adapter owns open-migrate-close. The command consumes public runtime entry points only.
 - RESOLVED for one real export: the production CLI imported a private Chrome export with 1,174 roots, 427 folders, and 13,709 bookmarks. The raw file remains ignored and uncommitted; broader Chrome-version compatibility remains unclaimed.
+- RESOLVED 2026-07-16: the Local CLI inspection command no longer traverses Catalog snapshots or calculates descendant counts. The additive Catalog inspection-query contract landed first; Catalog now owns the projection and the CLI only formats its result.
+- RESOLVED 2026-07-16: the Node adapter now applies the complete per-hop deadline and registry-aligned request-target safety policy at its existing boundary, including IPv4 and IPv6 special-purpose exceptions and embedded IPv4 forms.
+- RESOLVED 2026-07-16: Health fully validates every `HealthObservationRepository` result before durable success, including fact coherence, retry count, redirect continuity, final URL, and deterministic classification. SQLite validation remains defense in depth.
 
 ## Capability brief: first runnable import command
 
@@ -1583,10 +1643,10 @@ To add a new provider, source, extractor, or review policy:
 ## Capability brief: read-only library inspection
 
 - Behavior: open and migrate a Catalog database, load one snapshot by ID, and print the stored folder hierarchy with descendant bookmark counts without writing snapshot data.
-- Placement: `apps/local-cli` owns argument parsing, projection to the documented folder-only output, stream selection, and lifecycle. Catalog continues to own snapshot meaning and SQLite continues to own persistence.
-- Contract changes: add only the inspect CLI command, success shape, failure codes, and exit codes above. Existing Catalog, Orchestrator, SQLite, and import contracts remain unchanged.
+- Current placement: Catalog owns the implemented folder-only inspection projection through `CatalogInspector`; `apps/local-cli` owns argument parsing, formatting to the documented command output, stream selection, and lifecycle. SQLite continues to own persistence.
+- Implemented contract: `CatalogInspector.inspectSnapshot(id: SnapshotId): Promise<Outcome<CatalogInspection | null, CatalogStorageFailure>>`. `CatalogInspection` contains `snapshotId`, `capturedAt`, `rootCount`, `folderCount`, `bookmarkCount`, and ordered `folders`. Each `CatalogInspectionFolder` contains `id: BookmarkId`, `title`, descendant `bookmarkCount`, and ordered child `folders`. Root bookmarks contribute to snapshot totals but not the folder list. The factory is `createCatalogInspector(catalog: Pick<BookmarkCatalog, "getSnapshot">): CatalogInspector`; it exposes neither SQLite nor full records to consumers.
 - Consumers: the local CLI subprocess test and the user selecting a folder for a later processing preview.
-- Migration order: document this additive command contract, then add the command implementation and subprocess acceptance without changing existing import behavior.
+- Completed migration order: the type-only Catalog contract and contract tests landed first; the approved factory was then implemented and exposed; the CLI migrated and deleted its snapshot traversal. Missing snapshots remain successful `null` reads and existing `CatalogStorageFailure` values pass through unchanged.
 - Explicitly out of scope: bookmark titles or URLs in output, selected-folder job creation, HTTP/UI surfaces, reconciliation, health checks, extraction, enrichment, search, and Chrome mutation.
 
 ## Capability brief: selected-folder processing preview
@@ -1640,8 +1700,26 @@ To add a new provider, source, extractor, or review policy:
 - Explicitly out of scope: worker loops, polling, concurrency, configurable operating values, multi-attempt profiles, progress output, scheduling, public-internet acceptance, staleness, deletion, model calls, rendered browsing, and Chrome mutation.
 - Provisional items: none. The first profile values are fixed for this command and version.
 
+## Capability brief: bounded bookmark trees
+
+- Behavior: reject oversized Chrome HTML before parser allocation grows without bound, reject Catalog inputs beyond one shared structural budget, reject over-budget stored snapshots as invalid, and keep import, inspection, preview, and enqueue behavior stack-safe at every accepted boundary.
+- Placement: Catalog owns the cross-source semantic node and depth limits because it owns bookmark hierarchy. The Chrome HTML adapter owns the UTF-8 source-byte limit and applies Catalog's public structural limits while translating. SQLite owns bounded validation of stored rows. Processing and the Local CLI consume only bounded public Catalog projections and retain their existing output contracts.
+- Fixed first-horizon limits: at most 20,000 semantic nodes, at most depth 256 with roots at depth 1, and at most 16,777,216 UTF-8 bytes for Chrome HTML. Limits are inclusive. The structural ceiling preserves the recorded 14,136-node real export and exceeds the maintained 10,000-node performance fixture; a later increase is a versioned policy decision with new performance evidence.
+- Contract changes: Catalog adds `CatalogResourceLimits`, `CATALOG_RESOURCE_LIMITS`, `node_limit_exceeded`, and `depth_limit_exceeded`. Chrome HTML adds `CHROME_HTML_MAX_INPUT_BYTES` plus `invalid_encoding`, `input_too_large`, and matching structural failures. Existing success types, storage failure codes, CLI exits, inspection output, and Processing results remain unchanged.
+- Failure ownership: Chrome HTML authors source-stage byte and early structural failures. Catalog independently authors structural failures for every producer. SQLite maps an over-budget or malformed stored graph to `stored_snapshot_invalid`; it does not repair or truncate. CLI and Processing map only these structured results and never infer resource meaning from diagnostics or exceptions.
+- Implementation rule: current tree consumers use explicit work stacks or queues. Call-stack recursion is forbidden. Source order, depth-first ID allocation, immutable output, descendant counts, cycle rejection, atomic persistence, and privacy redaction remain unchanged. Each owner may back its public runtime constant with one private same-module value so internal implementations consume the exact policy without importing their own `public.ts` entry point.
+- Migration order: public contracts first; Catalog validation/construction second; Chrome HTML and bounded CLI file reading third; SQLite save/load fourth; Catalog inspection plus CLI formatting fifth; Processing traversal sixth. Focused boundary tests precede behavior in each slice, and the existing 10,000-node end-to-end proof remains green throughout.
+- Explicitly out of scope: streaming HTML parsing, configurable limits, database schema changes, truncation, partial imports, automatic retries, arbitrary-depth support, or a shared cross-module traversal implementation.
+- Provisional items: none. Revisit the fixed values only with a concrete larger valid export and measured memory/runtime evidence.
+
 ## Contract changelog
 
+- 2026-07-16: completed the post-remediation adversarial corrections: coherent Health repository facts, fatal Chrome HTML UTF-8 decoding, and IANA-aligned IPv4 request-target policy.
+- 2026-07-16: added `invalid_encoding` to the Chrome HTML source failure contract for fatal UTF-8 decoding by file-reading consumers; the Local CLI and contract tests migrate before decoding behavior changes.
+- 2026-07-16: completed bounded bookmark-tree enforcement across Catalog validation/construction, Chrome HTML and CLI input, SQLite persistence, inspection/formatting, and Processing selection. Every accepted owner path is iterative and limit-plus-one input fails through its existing typed boundary.
+- 2026-07-16: approved fixed bookmark-tree resource contracts for Catalog and Chrome HTML; future consumers are Catalog validation/construction, the Chrome parser, SQLite persistence, Processing, and Local CLI inspection/import. Runtime public types migrate in an isolated contract slice before implementations.
+- 2026-07-16: implemented the additive Catalog inspection-query contract for the Local CLI consumer after landing its public types separately; Catalog now owns projection and the CLI output shape is unchanged.
+- 2026-07-15: distinguished current executable modules from target architecture and recorded three boundary repairs found by the adversarial audit: Catalog-owned inspection projection, Node-owned Health safety behavior, and Health-owned repository-result validation. No executable contract changed.
 - 2026-07-12: initial target module map created; no runtime consumers exist.
 - 2026-07-13: completed the first catalog import/read contract and updated the orchestrator import signature; future consumers are catalog validators, the Chrome HTML adapter, and SQLite catalog persistence; no runtime consumers required migration.
 - 2026-07-13: added the pure `ChromeHtmlImporter` producer contract, typed source failures, timestamp and hierarchy rules, and private path-derived source-ID ownership; no runtime consumers required migration.

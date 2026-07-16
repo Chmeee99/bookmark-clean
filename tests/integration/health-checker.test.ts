@@ -151,7 +151,10 @@ test("replays exact input and rejects URL reuse before side effects", async () =
   equal(await replay.checker.check(request), { ok: true, value: { id: observationId } }, "Replay changed");
   assert(replay.state.requests.length === 0 && replay.state.saves === 0, "Replay used side effects");
 
-  const conflict = harness({ existing: stored({ requestedUrl: "https://other.example" }) });
+  const conflict = harness({ existing: stored({
+    requestedUrl: "https://other.example",
+    finalUrl: "https://other.example",
+  }) });
   equal(await conflict.checker.check(request), {
     ok: false,
     error: { code: "input_conflict", disposition: "terminal" },

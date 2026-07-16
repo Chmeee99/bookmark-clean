@@ -186,11 +186,12 @@ function createSqliteHealthObservationStore(
           transactionStarted = false;
           return existing;
         }
-        if (existing.value !== null) {
+        const existingObservation = existing.value;
+        if (existingObservation !== null) {
           database.exec("COMMIT");
           transactionStarted = false;
-          return observationsEqual(existing.value, candidate.value)
-            ? existing
+          return observationsEqual(existingObservation, candidate.value)
+            ? { ok: true, value: existingObservation }
             : { ok: false, error: { code: "observation_conflict" } };
         }
 
@@ -207,7 +208,7 @@ function createSqliteHealthObservationStore(
         }
         database.exec("COMMIT");
         transactionStarted = false;
-        return stored;
+        return { ok: true, value: stored.value };
       } catch {
         if (transactionStarted) rollbackBestEffort(database);
         return unavailable();
