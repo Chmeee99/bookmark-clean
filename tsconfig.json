@@ -12,6 +12,7 @@
     "core/**/*.ts",
     "modules/**/*.ts",
     "adapters/**/*.ts",
+    "tools/**/*.ts",
     "tests/**/*.ts"
   ]
 }
