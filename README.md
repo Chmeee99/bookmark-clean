@@ -7,6 +7,65 @@ Bookmark Clean imports a Chrome bookmarks HTML export into SQLite and can inspec
 - Node.js 26
 - Installed npm dependencies
 
+## Verification
+
+Run the complete local gate with:
+
+```sh
+npm run check
+```
+
+Five Health integration files bind ephemeral listeners on `127.0.0.1`. In a
+restricted sandbox that forbids local listeners, use:
+
+```sh
+npm run check:restricted
+```
+
+The restricted command prints the exact capability and omitted file count. It
+is a development fallback, not the release gate. GitHub CI and ordinary local
+completion run the full `npm run check`.
+
+## Benchmark LM Studio structured output
+
+With the named candidates loaded in LM Studio and its local server running on
+`127.0.0.1:1234`, run:
+
+```sh
+npm run model:benchmark
+```
+
+The command uses four synthetic pilot cases, strict JSON Schema output, no
+semantic retry, and no malformed-output repair. It prints only model IDs,
+structured outcome codes, byte counts, attempts, and latency metrics. A
+nonzero exit means the server or a candidate was unavailable, or at least one
+case failed. This pilot compares contract compliance; it does not select the
+production enrichment model or replace the future labeled quality benchmark.
+
+The corrected 2026-07-16 live pilot accepted Qwen3.6 27B on all four strict
+cases, including the hostile-page fixture, with a 4.44-second median latency.
+Gemma 4 26B A4B QAT exhausted the 1,024-token output budget with invalid JSON.
+See
+`docs/reports/model-structured-output-pilot-2026-07-16.md`.
+
+## Run the enrichment quality calibration
+
+With `qwen/qwen3.6-27b` loaded, run the independent labeled calibration:
+
+```sh
+npm run model:quality-calibration
+```
+
+The command runs 16 synthetic English and German cases and writes a machine
+report plus a candidate-blinded human-review sheet under `docs/reports/`.
+Malformed output is never repaired. A nonzero exit means a structural, hard, or
+provisional quality gate failed; the evidence artifacts are still written.
+
+The corrected 2026-07-16 run produced 16/16 closed-schema and evidence-valid
+outputs with no critical injection failure. It did not clear the provisional
+quality gate, and the rubric needs revision before expansion. See
+`docs/reports/enrichment-quality-calibration-assessment-2026-07-16.md`.
+
 ## Import bookmarks
 
 ```sh

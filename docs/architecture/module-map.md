@@ -472,7 +472,8 @@ type ProcessingStartFailure =
         | "invalid_request"
         | "batch_not_found"
         | "stale_lease"
-        | "invalid_transition";
+        | "invalid_transition"
+        | "stored_queue_invalid";
     };
 
 interface ProcessingStarter {
@@ -598,6 +599,7 @@ type JobQueueFailureCode =
   | "batch_not_found"
   | "stale_lease"
   | "invalid_transition"
+  | "stored_queue_invalid"
   | "storage_unavailable";
 
 interface JobQueueFailure {
@@ -813,7 +815,10 @@ Store and service boundaries:
 - The canonical request fingerprint is a deterministic serialization of declared request fields in job-array order; it excludes diagnostics and runtime timestamps. The store treats it as opaque and compares it only for equality.
 - `StoredEnqueueCommand.jobIds.length` must equal `request.jobs.length`; IDs align by array index. Port implementations reject malformed commands as `invalid_request` without partial writes.
 - `JobQueueStore` owns durable compare-and-set mechanics and expired-lease recovery but no handler policy, domain result creation, clock, randomness, or prose interpretation.
-- Fixed queue failures are returned unchanged. Expected unavailable storage becomes `storage_unavailable` without parsing database messages.
+- Fixed queue failures are returned unchanged. Stored rows or projections that
+  fail adapter-owned structured validation become `stored_queue_invalid`.
+  Expected unavailable storage and compare-and-set/transaction failures become
+  `storage_unavailable`. Neither mapping parses database or exception prose.
 
 Worker and handler boundaries:
 
@@ -1284,6 +1289,66 @@ Allowed dependencies: HTTP client and secret/config store.
 
 Boundary notes: the first adapter targets LM Studio at loopback. Provider adapters do not decide what content to send or what returned fields mean. Remote adapters remain disabled until explicitly configured.
 
+Repository model-evaluation tooling is separate from the production adapter. It
+owns fixed versioned benchmark schemas, synthetic source spans, gold labels,
+deterministic scorers, and blinded review artifacts. The strict-output pilot
+records only redacted structured outcomes. The labeled calibration benchmark may
+retain generated fields for synthetic fixtures, validates every provider envelope
+through the declared schema, and scores only explicit gold contracts: source-span
+references, required-fact coverage, accepted tags/topics/entities, warning
+expectations, and forbidden exact claims. It never repairs malformed output or
+infers semantic correctness from free-form prose.
+
+The calibration contract mirrors the target Enrichment fields closely enough to
+test candidate suitability, but remains evaluation-owned and versioned
+independently. Changing it does not change the Enrichment public contract.
+Automated scores may qualify a candidate for blinded human review or a larger
+benchmark; they cannot select the production enrichment profile or claim search
+quality.
+
+Evaluation artifacts:
+
+```ts
+interface LabeledEnrichmentCase {
+  id: string;
+  category: string;
+  sourceSpans: readonly SourceSpan[];
+  containsPageInstruction: boolean;
+  gold: EnrichmentGoldContract;
+}
+
+interface EnrichmentGoldContract {
+  expectedLanguage: string;
+  expectedContentType: string;
+  requiredFacts: readonly RequiredFact[];
+  acceptedLiteralTags: readonly string[];
+  acceptedTopics: readonly string[];
+  acceptedEntities: readonly NamedEntity[];
+  requiredWarnings: readonly string[];
+  forbiddenClaims: readonly string[];
+}
+
+interface QualityBenchmarkReport {
+  schemaValidRate: number;
+  evidenceValidRate: number;
+  requiredFactCoverage: number;
+  literalTagPrecision: number;
+  usefulTopicCoverage: number;
+  entityPrecision: number;
+  entityRecall: number;
+  criticalInjectionFailures: number;
+  forbiddenClaimMatches: number;
+  medianLatencyMs: number;
+  p95LatencyMs: number;
+}
+```
+
+Boundary notes: benchmark source material is synthetic or explicitly public.
+Generated content may appear only in declared local evaluation artifacts. Human
+ratings remain separate from automated scores and must identify their reviewer
+and rubric version. The production Enrichment schema and its thresholds require
+their own contract slice after the calibration evidence is reviewed.
+
 ## Retrieval module
 
 Responsibility: index bookmark representations and return explainable lexical, semantic, and filtered search results.
@@ -1414,7 +1479,7 @@ Hides: Node SQLite types, connection lifecycle, pragmas, migrations table, prepa
 
 Allowed dependencies: Node SQLite API plus public module-owned persistence ports.
 
-Boundary notes: SQL stays inside adapter implementations or a module's private repository implementation. Apps and orchestrator code never execute SQL or receive a raw database handle. Every migration has an automated forward-migration test.
+Boundary notes: SQL stays inside adapter implementations or a module's private repository implementation. Apps and orchestrator code never execute SQL or receive a raw database handle. Every migration has an automated forward-migration test. File-backed sessions require an existing owner-controlled parent directory and reject symlink final components, foreign-owned or multiply linked files, and group/world-writable parents before SQLite opens the path. The single-user local boundary does not claim encryption or protection from hostile ancestor replacement; shared or service distribution requires a new threat model.
 
 ## Local CLI app
 
