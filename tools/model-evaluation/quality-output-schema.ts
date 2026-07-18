@@ -27,6 +27,18 @@ const CONTENT_TYPES = [
   "failure",
 ] as const satisfies readonly QualityContentType[];
 
+const TOPIC_TYPES = [
+  "software_development",
+  "business",
+  "technology",
+  "science",
+  "news",
+  "education",
+  "entertainment",
+  "lifestyle",
+  "other",
+] as const;
+
 const ENTITY_TYPES = [
   "organization",
   "person",
@@ -61,7 +73,7 @@ const QUALITY_OUTPUT_SCHEMA = {
     },
     topics: {
       type: "array",
-      items: { type: "string", minLength: 1, maxLength: 80 },
+      items: { type: "string", enum: TOPIC_TYPES },
       minItems: 1,
       maxItems: 6,
     },
@@ -135,6 +147,7 @@ interface QualityOutputSchemaRuntime {
   QUALITY_OUTPUT_SCHEMA: typeof QUALITY_OUTPUT_SCHEMA;
   SCORED_FIELDS: typeof SCORED_FIELDS;
   CONTENT_TYPES: typeof CONTENT_TYPES;
+  TOPIC_TYPES: typeof TOPIC_TYPES;
   ENTITY_TYPES: typeof ENTITY_TYPES;
   WARNINGS: typeof WARNINGS;
 }
@@ -146,6 +159,7 @@ module.exports = {
   QUALITY_OUTPUT_SCHEMA,
   SCORED_FIELDS,
   CONTENT_TYPES,
+  TOPIC_TYPES,
   ENTITY_TYPES,
   WARNINGS,
 };

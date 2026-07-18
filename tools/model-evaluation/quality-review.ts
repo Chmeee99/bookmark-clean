@@ -13,7 +13,7 @@ function renderGoldReference(benchmarkCase: EnrichmentQualityCase): string {
   const gold = benchmarkCase.gold;
   return [
     `- Expected language: ${gold.expectedLanguage}`,
-    `- Expected content type: ${gold.expectedContentType}`,
+    `- Accepted content types: ${gold.acceptedContentTypes.join(", ")}`,
     `- Required fact IDs: ${gold.requiredFacts.map((fact) => fact.id).join(", ")}`,
     `- Accepted literal tags: ${gold.acceptedLiteralTags.join(", ")}`,
     `- Accepted topics: ${gold.acceptedTopics.join(", ")}`,

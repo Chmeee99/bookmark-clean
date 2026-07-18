@@ -35,6 +35,7 @@ interface ValidationApi {
 interface SchemaApi {
   readonly CONTENT_TYPES: readonly QualityContentType[];
   readonly ENTITY_TYPES: readonly QualityEntityType[];
+  readonly TOPIC_TYPES: readonly string[];
   readonly SCORED_FIELDS: readonly ScoredOutputField[];
   readonly WARNINGS: readonly QualityWarning[];
 }
@@ -56,11 +57,12 @@ const CASE_KEYS = [
 ] as const;
 const GOLD_KEYS = [
   "expectedLanguage",
-  "expectedContentType",
+  "acceptedContentTypes",
   "requiredFacts",
   "acceptedLiteralTags",
   "acceptedTopics",
   "acceptedEntities",
+  "forbiddenEntities",
   "requiredWarnings",
   "forbiddenClaims",
 ] as const;
@@ -108,15 +110,23 @@ function validateGold(
   }
   if (
     !oneOf(value.expectedLanguage, ["en", "de"] as const) ||
-    !oneOf(value.expectedContentType, schema.CONTENT_TYPES) ||
+    !validation.isUniqueStringArray(value.acceptedContentTypes, 1, 4, 80) ||
+    !value.acceptedContentTypes.every((item) => oneOf(item, schema.CONTENT_TYPES)) ||
     !validation.isUniqueStringArray(value.acceptedLiteralTags, 1, 20, 80) ||
     !validation.isUniqueStringArray(value.acceptedTopics, 1, 20, 80) ||
+    !value.acceptedTopics.every((item) => oneOf(item, schema.TOPIC_TYPES)) ||
     !Array.isArray(value.acceptedEntities) ||
     value.acceptedEntities.length > 20 ||
     !value.acceptedEntities.every(validateEntity) ||
     new Set(
       value.acceptedEntities.map((entity) => `${entity.type}:${entity.name}`),
     ).size !== value.acceptedEntities.length ||
+    !Array.isArray(value.forbiddenEntities) ||
+    value.forbiddenEntities.length > 20 ||
+    !value.forbiddenEntities.every(validateEntity) ||
+    new Set(
+      value.forbiddenEntities.map((entity) => `${entity.type}:${entity.name}`),
+    ).size !== value.forbiddenEntities.length ||
     !validation.isUniqueStringArray(value.requiredWarnings, 0, 4, 80) ||
     !value.requiredWarnings.every((item) => oneOf(item, schema.WARNINGS)) ||
     !validation.isUniqueStringArray(value.forbiddenClaims, 0, 20, 200)

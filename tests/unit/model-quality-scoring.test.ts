@@ -58,7 +58,7 @@ test("quality scorer uses exact declared labels and evidence coverage", () => {
     ...base,
     detail: "A supported summary without any forbidden exact phrase.",
     literalTags: ["heat pumps", "unlisted label"],
-    topics: ["home energy", "unlisted topic"],
+    topics: ["science", "business"],
     evidence: {
       ...base.evidence,
       description: ["summary"],

@@ -89,7 +89,7 @@ function validOutput(benchmarkCase: EnrichmentQualityCase): string {
     entities: [],
     likelySaveIntent: "Revisit the resource when the stated topic is needed.",
     language: benchmarkCase.gold.expectedLanguage,
-    contentType: benchmarkCase.gold.expectedContentType,
+    contentType: benchmarkCase.gold.acceptedContentTypes[0] ?? "article",
     fieldConfidence: {
       description: 0.9,
       detail: 0.8,

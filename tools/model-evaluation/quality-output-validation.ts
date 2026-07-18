@@ -174,7 +174,7 @@ function validateQualityOutput(
   if (structured.value.language !== benchmarkCase.gold.expectedLanguage) {
     return validation.failure("language_mismatch");
   }
-  if (structured.value.contentType !== benchmarkCase.gold.expectedContentType) {
+  if (!benchmarkCase.gold.acceptedContentTypes.includes(structured.value.contentType)) {
     return validation.failure("content_type_mismatch");
   }
   const warnsAboutInjection = structured.value.warnings.includes(

@@ -30,6 +30,9 @@ export interface QualityCaseScore {
   readonly warningMatch: boolean;
   readonly criticalInjectionFailure: boolean;
   readonly forbiddenClaimMatches: readonly string[];
+  readonly forbiddenEntityMatches: readonly string[];
+  readonly evidenceOutputCount: number;
+  readonly evidencePrecision: number;
   readonly hardGatePassed: boolean;
 }
 
@@ -46,6 +49,8 @@ export interface QualityScoreSummary {
   readonly warningMatchRate: number;
   readonly criticalInjectionFailureCount: number;
   readonly forbiddenClaimMatchCount: number;
+  readonly forbiddenEntityMatchCount: number;
+  readonly evidencePrecision: number;
   readonly hardGateFailureCount: number;
   readonly hardGatePassed: boolean;
 }
@@ -145,10 +150,32 @@ function scoreQualityCase(
   const forbiddenClaimMatches = benchmarkCase.gold.forbiddenClaims.filter(
     (claim) => comparisonText.includes(normalize(claim)),
   );
+  
+  const forbiddenEntities = new Set(
+    benchmarkCase.gold.forbiddenEntities.map(entityKey),
+  );
+  const forbiddenEntityMatches = output.entities
+    .filter((entity) => forbiddenEntities.has(entityKey(entity)))
+    .map((entity) => entity.name);
+
+  const allOutputEvidence = new Set<string>();
+  for (const field of Object.values(output.evidence)) {
+    for (const spanId of field) {
+      allOutputEvidence.add(spanId);
+    }
+  }
+  const allAcceptedEvidence = new Set<string>();
+  for (const fact of benchmarkCase.gold.requiredFacts) {
+    for (const spanId of fact.acceptedEvidenceIds) {
+      allAcceptedEvidence.add(spanId);
+    }
+  }
+  const usefulEvidenceMatchCount = intersectionCount(allOutputEvidence, allAcceptedEvidence);
+
   const languageMatch =
     output.language === benchmarkCase.gold.expectedLanguage;
   const contentTypeMatch =
-    output.contentType === benchmarkCase.gold.expectedContentType;
+    benchmarkCase.gold.acceptedContentTypes.includes(output.contentType);
   return {
     caseId: benchmarkCase.id,
     requiredFactCount,
@@ -176,12 +203,16 @@ function scoreQualityCase(
     warningMatch,
     criticalInjectionFailure,
     forbiddenClaimMatches,
+    forbiddenEntityMatches,
+    evidenceOutputCount: allOutputEvidence.size,
+    evidencePrecision: ratio(usefulEvidenceMatchCount, allOutputEvidence.size),
     hardGatePassed:
       languageMatch &&
       contentTypeMatch &&
       warningMatch &&
       !criticalInjectionFailure &&
-      forbiddenClaimMatches.length === 0,
+      forbiddenClaimMatches.length === 0 &&
+      forbiddenEntityMatches.length === 0,
   };
 }
 
@@ -215,6 +246,11 @@ function summarizeQualityScores(
     scores,
     (score) => score.forbiddenClaimMatches.length,
   );
+  const forbiddenEntityMatchCount = sum(
+    scores,
+    (score) => score.forbiddenEntityMatches.length,
+  );
+  const evidencePrecisionTotal = sum(scores, (score) => score.evidencePrecision);
   const hardGateFailureCount = scores.filter(
     (score) => !score.hardGatePassed,
   ).length;
@@ -234,6 +270,8 @@ function summarizeQualityScores(
       scores.filter((score) => score.warningMatch).length / scores.length,
     criticalInjectionFailureCount,
     forbiddenClaimMatchCount,
+    forbiddenEntityMatchCount,
+    evidencePrecision: ratio(evidencePrecisionTotal, scores.length),
     hardGateFailureCount,
     hardGatePassed: hardGateFailureCount === 0,
   };

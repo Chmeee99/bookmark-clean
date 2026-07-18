@@ -104,7 +104,7 @@ test("quality output rejects language content type and warning contradictions", 
     validOutput(cleanCase),
   ) as Record<string, any>;
   wrongContentType.contentType =
-    cleanCase.gold.expectedContentType === "article"
+    cleanCase.gold.acceptedContentTypes[0] === "article"
       ? "product"
       : "article";
   assertDeepEqual(

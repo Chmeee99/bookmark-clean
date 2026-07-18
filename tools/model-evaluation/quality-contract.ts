@@ -14,6 +14,16 @@ export type QualityContentType =
   | "landing_page"
   | "redirect"
   | "failure";
+export type QualityTopicType =
+  | "software_development"
+  | "business"
+  | "technology"
+  | "science"
+  | "news"
+  | "education"
+  | "entertainment"
+  | "lifestyle"
+  | "other";
 export type QualityCategory =
   | "article"
   | "product"
@@ -70,11 +80,12 @@ export interface RequiredFact {
 
 export interface EnrichmentGoldContract {
   readonly expectedLanguage: QualityLanguage;
-  readonly expectedContentType: QualityContentType;
+  readonly acceptedContentTypes: readonly QualityContentType[];
   readonly requiredFacts: readonly RequiredFact[];
   readonly acceptedLiteralTags: readonly string[];
-  readonly acceptedTopics: readonly string[];
+  readonly acceptedTopics: readonly QualityTopicType[];
   readonly acceptedEntities: readonly QualityEntity[];
+  readonly forbiddenEntities: readonly QualityEntity[];
   readonly requiredWarnings: readonly QualityWarning[];
   readonly forbiddenClaims: readonly string[];
 }
@@ -112,7 +123,7 @@ export interface EnrichmentQualityOutput {
   readonly description: string;
   readonly detail: string;
   readonly literalTags: readonly string[];
-  readonly topics: readonly string[];
+  readonly topics: readonly QualityTopicType[];
   readonly entities: readonly QualityEntity[];
   readonly likelySaveIntent: string;
   readonly language: QualityLanguage;

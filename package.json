@@ -13,6 +13,7 @@
     "worker:once": "node apps/local-cli/main.ts worker:once",
     "model:benchmark": "node tools/model-evaluation/main.ts",
     "model:quality-calibration": "node tools/model-evaluation/quality-main.ts",
+    "model:blind-review": "node tools/model-evaluation/quality-main.ts",
     "test": "node scripts/run-tests.mjs",
     "test:restricted": "node scripts/run-tests.mjs --exclude-capability=loopback-listener",
     "test:jobs-sqlite": "node --test tests/integration/jobs-schema.test.ts tests/integration/jobs-sqlite-enqueue.test.ts tests/integration/jobs-sqlite-lease.test.ts tests/integration/jobs-sqlite-recovery.test.ts tests/integration/jobs-sqlite-transitions.test.ts tests/integration/jobs-sqlite-failure-transitions.test.ts tests/integration/jobs-sqlite-controls.test.ts tests/integration/jobs-sqlite-progress.test.ts tests/integration/job-queue-sqlite-store.test.ts",
