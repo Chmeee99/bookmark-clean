@@ -22,6 +22,10 @@ interface ResolverApi {
   createHealthRequestTargetResolver(options?: {
     readonly lookup?: (hostname: string) => Promise<readonly AddressRecord[]>;
     readonly allowLoopback?: boolean;
+    readonly nat64Prefixes?: readonly string[];
+    readonly nat64DiscoveryLookup?: (
+      hostname: string,
+    ) => Promise<readonly AddressRecord[]>;
   }): TargetResolver;
 }
 
@@ -144,7 +148,10 @@ test("rejects every configured unsafe IPv4 and IPv6 range", async () => {
     { address: "::ffff:127.0.0.1", family: 6 },
   ];
   for (const record of unsafe) {
-    const resolver = createHealthRequestTargetResolver({ lookup: async () => [record] });
+    const resolver = createHealthRequestTargetResolver({
+      nat64Prefixes: [],
+      lookup: async () => [record],
+    });
     equal(await resolver.resolve("https://example.com"), rejected);
   }
 });
@@ -171,7 +178,7 @@ test("rejects reserved non-global and deprecated IPv6 blocks", async () => {
   for (const address of unsafe) {
     const resolver = createHealthRequestTargetResolver({ lookup: async () => [
       { address, family: 6 },
-    ] });
+    ], nat64Prefixes: [] });
     equal(await resolver.resolve("https://example.com"), rejected);
   }
 });
@@ -185,16 +192,130 @@ test("applies the RFC 6052 IPv4 policy inside 64:ff9b::/96", async () => {
   ]) {
     const resolver = createHealthRequestTargetResolver({
       allowLoopback: true,
+      nat64Prefixes: [],
       lookup: async () => [{ address, family: 6 }],
     });
     equal(await resolver.resolve("https://example.com"), rejected);
   }
 
-  const publicTranslation = createHealthRequestTargetResolver({ lookup: async () => [
+  const publicTranslation = createHealthRequestTargetResolver({ nat64Prefixes: [], lookup: async () => [
     { address: "64:ff9b::808:808", family: 6 },
   ] });
   const result = await publicTranslation.resolve("https://example.com");
   equal(result.ok ? result.value.address : result, "64:ff9b::808:808");
+});
+
+test("applies the IPv4 policy inside configured RFC 6052 network prefixes", async () => {
+  const translatedLoopback = [
+    ["2606:4700::/32", "2606:4700:7f00:1::"],
+    ["2606:4700:4700::/40", "2606:4700:477f:0:1::"],
+    ["2606:4700:4700::/48", "2606:4700:4700:7f00:0:100::"],
+    ["2606:4700:4700:1200::/56", "2606:4700:4700:127f:0:1::"],
+    ["2606:4700:4700:1234::/64", "2606:4700:4700:1234:7f:0:100:0"],
+    ["2606:4700:4700:1234:5678:9abc::/96", "2606:4700:4700:1234:5678:9abc:7f00:1"],
+  ] as const;
+
+  for (const [prefix, address] of translatedLoopback) {
+    const resolver = createHealthRequestTargetResolver({
+      allowLoopback: true,
+      nat64Prefixes: [prefix],
+      lookup: async () => [{ address, family: 6 }],
+    });
+    equal(await resolver.resolve("https://example.com"), rejected);
+  }
+
+  const publicTranslation = createHealthRequestTargetResolver({
+    nat64Prefixes: ["2606:4700:4700:1234::/64"],
+    lookup: async () => [{
+      address: "2606:4700:4700:1234:8:808:800:0",
+      family: 6,
+    }],
+  });
+  const publicResult = await publicTranslation.resolve("https://example.com");
+  equal(
+    publicResult.ok ? publicResult.value.address : publicResult,
+    "2606:4700:4700:1234:8:808:800:0",
+  );
+
+  const nonZeroSuffix = createHealthRequestTargetResolver({
+    nat64Prefixes: ["2606:4700:4700:1234::/64"],
+    lookup: async () => [{
+      address: "2606:4700:4700:1234:8:808:800:1",
+      family: 6,
+    }],
+  });
+  equal(await nonZeroSuffix.resolve("https://example.com"), rejected);
+
+  const overlappingPrefixes = createHealthRequestTargetResolver({
+    nat64Prefixes: [
+      "2606:4700:4700:1234:5678:9abc::/96",
+      "2606:4700:4700:1234::/64",
+    ],
+    lookup: async () => [{
+      address: "2606:4700:4700:1234:5678:9abc:808:808",
+      family: 6,
+    }],
+  });
+  equal(await overlappingPrefixes.resolve("https://example.com"), rejected);
+
+  for (const prefix of [
+    "2606:4700::/33",
+    "2606:4700:4700:1::/48",
+    "not-an-ipv6-prefix/96",
+  ]) {
+    const invalid = createHealthRequestTargetResolver({
+      nat64Prefixes: [prefix],
+      lookup: safeLookup,
+    });
+    equal(await invalid.resolve("https://example.com"), rejected);
+  }
+});
+
+test("discovers an RFC 7050 network prefix before approving IPv6", async () => {
+  const translated = [
+    ["2606:4700:c000:aa::", "2606:4700:7f00:1::"],
+    ["2606:4700:47c0:0:aa::", "2606:4700:477f:0:1::"],
+    ["2606:4700:4700:c000:0:aa00::", "2606:4700:4700:7f00:0:100::"],
+    ["2606:4700:4700:12c0:0:aa::", "2606:4700:4700:127f:0:1::"],
+    ["2606:4700:4700:1234:c0:0:aa00:0", "2606:4700:4700:1234:7f:0:100:0"],
+    [
+      "2606:4700:4700:1234:5678:9abc:c000:aa",
+      "2606:4700:4700:1234:5678:9abc:7f00:1",
+    ],
+  ] as const;
+  const discoveryNames: string[] = [];
+  for (const [discoveryAddress, targetAddress] of translated) {
+    const resolver = createHealthRequestTargetResolver({
+      lookup: async () => [{ address: targetAddress, family: 6 }],
+      nat64DiscoveryLookup: async (hostname) => {
+        discoveryNames.push(hostname);
+        return [{ address: discoveryAddress, family: 6 }];
+      },
+    });
+    equal(await resolver.resolve("https://example.com"), rejected);
+  }
+  equal(discoveryNames, translated.map(() => "ipv4only.arpa"));
+
+  const nativeIpv6 = createHealthRequestTargetResolver({
+    lookup: async () => [{ address: "2606:4700:4700::1111", family: 6 }],
+    nat64DiscoveryLookup: async () => [
+      { address: "192.0.0.170", family: 4 },
+      { address: "192.0.0.171", family: 4 },
+    ],
+  });
+  const result = await nativeIpv6.resolve("https://example.com");
+  equal(result.ok ? result.value.address : result, "2606:4700:4700::1111");
+
+  for (const discoveryRecords of [
+    [],
+    [{ address: "2606:4700:4700::1111", family: 6 as const }],
+  ]) {
+    const indeterminate = createHealthRequestTargetResolver({
+      lookup: async () => [{ address: "2606:4700:4700::1111", family: 6 }],
+      nat64DiscoveryLookup: async () => discoveryRecords,
+    });
+    equal(await indeterminate.resolve("https://example.com"), rejected);
+  }
 });
 
 test("preserves global special-address exceptions and prefix-edge controls", async () => {
@@ -213,12 +334,15 @@ test("preserves global special-address exceptions and prefix-edge controls", asy
     { address: "64:ff9b::c000:9", family: 6 },
   ];
   for (const record of safe) {
-    const resolver = createHealthRequestTargetResolver({ lookup: async () => [record] });
+    const resolver = createHealthRequestTargetResolver({
+      nat64Prefixes: [],
+      lookup: async () => [record],
+    });
     const result = await resolver.resolve("https://example.com");
     equal(result.ok ? result.value.address : result, record.address);
   }
 
-  const mixed = createHealthRequestTargetResolver({ lookup: async () => [
+  const mixed = createHealthRequestTargetResolver({ nat64Prefixes: [], lookup: async () => [
     { address: "2606:4700:4700::1111", family: 6 },
     { address: "64:ff9b:1::1", family: 6 },
   ] });
@@ -226,7 +350,7 @@ test("preserves global special-address exceptions and prefix-edge controls", asy
 });
 
 test("rejects mixed answers and selects safe answers deterministically", async () => {
-  const mixed = createHealthRequestTargetResolver({ lookup: async () => [
+  const mixed = createHealthRequestTargetResolver({ nat64Prefixes: [], lookup: async () => [
     { address: "1.1.1.1", family: 4 },
     { address: "10.0.0.1", family: 4 },
   ] });
@@ -244,7 +368,10 @@ test("rejects mixed answers and selects safe answers deterministically", async (
       { address: "2606:4700:4700::1111", family: 6 as const },
     ],
   ]) {
-    const result = await createHealthRequestTargetResolver({ lookup: async () => records })
+    const result = await createHealthRequestTargetResolver({
+      nat64Prefixes: [],
+      lookup: async () => records,
+    })
       .resolve("https://example.com");
     equal(result.ok ? [result.value.address, result.value.family] : result, ["1.1.1.1", 4]);
   }
@@ -254,7 +381,7 @@ test("rejects mixed answers and selects safe answers deterministically", async (
   const neighbor = await publicSpecialNeighbor.resolve("https://example.com");
   equal(neighbor.ok ? neighbor.value.address : neighbor, "192.0.1.1");
 
-  const mapped = createHealthRequestTargetResolver({ lookup: async () => [
+  const mapped = createHealthRequestTargetResolver({ nat64Prefixes: [], lookup: async () => [
     { address: "::ffff:8.8.8.8", family: 6 },
   ] });
   const mappedResult = await mapped.resolve("https://example.com");

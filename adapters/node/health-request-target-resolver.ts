@@ -21,6 +21,10 @@ interface HealthRequestTargetResolver {
 interface ResolverOptions {
   readonly lookup?: (hostname: string) => Promise<readonly AddressRecord[]>;
   readonly allowLoopback?: boolean;
+  readonly nat64Prefixes?: readonly string[];
+  readonly nat64DiscoveryLookup?: (
+    hostname: string,
+  ) => Promise<readonly AddressRecord[]>;
 }
 interface DnsApi {
   promises: {
@@ -28,6 +32,8 @@ interface DnsApi {
       hostname: string,
       options: { readonly all: true; readonly verbatim: true },
     ): Promise<readonly { readonly address: string; readonly family: number }[]>;
+    resolve4(hostname: string): Promise<readonly string[]>;
+    resolve6(hostname: string): Promise<readonly string[]>;
   };
 }
 interface NetApi { isIP(address: string): number; }
@@ -143,11 +149,17 @@ function ipv6Hextets(address: string): readonly number[] | undefined {
 }
 
 type Ipv6Prefix = readonly [readonly number[], number];
+type Nat64PrefixLength = 32 | 40 | 48 | 56 | 64 | 96;
+type Nat64Prefix = readonly [readonly number[], Nat64PrefixLength];
 
 // IANA IPv6 Address Space, last updated 2025-10-23, identifies 2000::/3
 // as Global Unicast; RFC 6052 defines the separate well-known translator.
 const GLOBAL_UNICAST_IPV6_PREFIX: Ipv6Prefix = [[0x2000], 3];
 const RFC6052_WELL_KNOWN_PREFIX: Ipv6Prefix = [[0x0064, 0xff9b], 96];
+const RFC6052_PREFIX_LENGTHS: readonly Nat64PrefixLength[] = [32, 40, 48, 56, 64, 96];
+// RFC 7050 discovers the active RFC 6052 prefix from these fixed records.
+const RFC7050_DISCOVERY_HOSTNAME = "ipv4only.arpa";
+const RFC7050_WELL_KNOWN_IPV4 = new Set(["192.0.0.170", "192.0.0.171"]);
 
 // IANA IPv6 Special-Purpose Address Registry, last updated 2025-10-09:
 // https://www.iana.org/assignments/iana-ipv6-special-registry/
@@ -197,6 +209,121 @@ function lastIpv4Disposition(parts: readonly number[]): AddressDisposition {
   ].join("."));
 }
 
+function parseNat64Prefix(value: unknown): Nat64Prefix | undefined {
+  if (typeof value !== "string") return undefined;
+  const separator = value.lastIndexOf("/");
+  if (separator < 1) return undefined;
+  const parts = ipv6Hextets(value.slice(0, separator));
+  const length = Number(value.slice(separator + 1));
+  if (parts === undefined || !RFC6052_PREFIX_LENGTHS.includes(length as Nat64PrefixLength)) {
+    return undefined;
+  }
+  const complete = Math.floor(length / 16);
+  const remaining = length % 16;
+  if (remaining > 0) {
+    const hostMask = 0xffff >>> remaining;
+    if ((parts[complete] & hostMask) !== 0) return undefined;
+  }
+  const hostStart = complete + (remaining > 0 ? 1 : 0);
+  if (parts.slice(hostStart).some((part) => part !== 0)) return undefined;
+  return [parts, length as Nat64PrefixLength];
+}
+
+function parseNat64Prefixes(values: unknown): readonly Nat64Prefix[] | undefined {
+  if (!Array.isArray(values)) return undefined;
+  const parsed = values.map(parseNat64Prefix);
+  return parsed.every((prefix): prefix is Nat64Prefix => prefix !== undefined)
+    ? parsed
+    : undefined;
+}
+
+function ipv6Bytes(parts: readonly number[]): readonly number[] {
+  return parts.flatMap((part) => [part >> 8, part & 255]);
+}
+
+function rfc6052Ipv4(parts: readonly number[], length: Nat64PrefixLength): string | undefined {
+  const bytes = ipv6Bytes(parts);
+  if (length !== 96 && bytes[8] !== 0) return undefined;
+  const suffixStart = length === 32 ? 9
+    : length === 40 ? 10
+    : length === 48 ? 11
+    : length === 56 ? 12
+    : length === 64 ? 13
+    : 16;
+  if (bytes.slice(suffixStart).some((byte) => byte !== 0)) return undefined;
+  const embedded = length === 32 ? bytes.slice(4, 8)
+    : length === 40 ? [bytes[5], bytes[6], bytes[7], bytes[9]]
+    : length === 48 ? [bytes[6], bytes[7], bytes[9], bytes[10]]
+    : length === 56 ? [bytes[7], bytes[9], bytes[10], bytes[11]]
+    : length === 64 ? [bytes[9], bytes[10], bytes[11], bytes[12]]
+    : bytes.slice(12, 16);
+  return embedded.join(".");
+}
+
+function prefixParts(
+  parts: readonly number[],
+  length: Nat64PrefixLength,
+): readonly number[] {
+  const normalized = [...parts];
+  const complete = Math.floor(length / 16);
+  const remaining = length % 16;
+  let hostStart = complete;
+  if (remaining > 0) {
+    normalized[complete] &= (0xffff << (16 - remaining)) & 0xffff;
+    hostStart += 1;
+  }
+  normalized.fill(0, hostStart);
+  return normalized;
+}
+
+function discoveredNat64Prefix(parts: readonly number[]): Nat64Prefix | undefined {
+  const candidates = RFC6052_PREFIX_LENGTHS.filter((length) => {
+    const embedded = rfc6052Ipv4(parts, length);
+    return embedded !== undefined && RFC7050_WELL_KNOWN_IPV4.has(embedded);
+  });
+  if (candidates.length !== 1) return undefined;
+  const length = candidates[0];
+  return [prefixParts(parts, length), length];
+}
+
+function discoverNat64Prefixes(
+  records: unknown,
+): readonly Nat64Prefix[] | undefined {
+  if (!Array.isArray(records) || records.length === 0) return undefined;
+  const discovered: Nat64Prefix[] = [];
+  for (const value of records) {
+    if (!isAddressRecord(value) || net.isIP(value.address) !== value.family) return undefined;
+    if (value.family === 4) {
+      if (!RFC7050_WELL_KNOWN_IPV4.has(value.address)) return undefined;
+      continue;
+    }
+    const parts = ipv6Hextets(value.address);
+    if (parts === undefined) return undefined;
+    const prefix = discoveredNat64Prefix(parts);
+    if (prefix === undefined) return undefined;
+    if (!discovered.some((candidate) =>
+      candidate[1] === prefix[1] && candidate[0].every((part, index) => part === prefix[0][index])
+    )) discovered.push(prefix);
+  }
+  return discovered;
+}
+
+function translatedIpv4Disposition(
+  parts: readonly number[],
+  prefixes: readonly Nat64Prefix[],
+): AddressDisposition | undefined {
+  let matched = false;
+  for (const prefix of prefixes) {
+    if (!inIpv6Prefix(parts, prefix)) continue;
+    matched = true;
+    const embedded = rfc6052Ipv4(parts, prefix[1]);
+    if (embedded === undefined) return "unsafe";
+    const disposition = ipv4Disposition(embedded);
+    if (disposition !== "safe") return "unsafe";
+  }
+  return matched ? "safe" : undefined;
+}
+
 function isNonGlobalIpv6(parts: readonly number[]): boolean {
   const ietfAssignments: Ipv6Prefix = [[0x2001], 23];
   if (inIpv6Prefix(parts, ietfAssignments) &&
@@ -206,7 +333,10 @@ function isNonGlobalIpv6(parts: readonly number[]): boolean {
   return NON_GLOBAL_IPV6_PREFIXES.some((prefix) => inIpv6Prefix(parts, prefix));
 }
 
-function ipv6Disposition(address: string): AddressDisposition {
+function ipv6Disposition(
+  address: string,
+  nat64Prefixes: readonly Nat64Prefix[],
+): AddressDisposition {
   const parts = ipv6Hextets(address);
   if (parts === undefined) return "unsafe";
   const allZero = parts.every((part) => part === 0);
@@ -218,19 +348,24 @@ function ipv6Disposition(address: string): AddressDisposition {
   if (mapped) {
     return lastIpv4Disposition(parts);
   }
-  if (inIpv6Prefix(parts, RFC6052_WELL_KNOWN_PREFIX)) {
-    return lastIpv4Disposition(parts) === "safe" ? "safe" : "unsafe";
-  }
+  const translated = translatedIpv4Disposition(parts, [
+    RFC6052_WELL_KNOWN_PREFIX as Nat64Prefix,
+    ...nat64Prefixes,
+  ]);
+  if (translated !== undefined) return translated;
   if (!inIpv6Prefix(parts, GLOBAL_UNICAST_IPV6_PREFIX)) return "unsafe";
   if (isNonGlobalIpv6(parts)) return "unsafe";
   return "safe";
 }
 
-function addressDisposition(record: AddressRecord): AddressDisposition {
+function addressDisposition(
+  record: AddressRecord,
+  nat64Prefixes: readonly Nat64Prefix[],
+): AddressDisposition {
   if (net.isIP(record.address) !== record.family) return "unsafe";
   return record.family === 4
     ? ipv4Disposition(record.address)
-    : ipv6Disposition(record.address);
+    : ipv6Disposition(record.address, nat64Prefixes);
 }
 
 function isAddressRecord(value: unknown): value is AddressRecord {
@@ -242,6 +377,27 @@ function isAddressRecord(value: unknown): value is AddressRecord {
 async function defaultLookup(hostname: string): Promise<readonly AddressRecord[]> {
   const records = await dns.promises.lookup(hostname, { all: true, verbatim: true });
   return records.map(({ address, family }) => ({ address, family: family as 4 | 6 }));
+}
+
+function nodeErrorCode(error: unknown): unknown {
+  return typeof error === "object" && error !== null
+    ? (error as Record<string, unknown>).code
+    : undefined;
+}
+
+async function defaultNat64DiscoveryLookup(
+  hostname: string,
+): Promise<readonly AddressRecord[]> {
+  try {
+    const addresses = await dns.promises.resolve6(hostname);
+    if (addresses.length > 0) {
+      return addresses.map((address) => ({ address, family: 6 as const }));
+    }
+  } catch (error) {
+    if (nodeErrorCode(error) !== "ENODATA") throw error;
+  }
+  const addresses = await dns.promises.resolve4(hostname);
+  return addresses.map((address) => ({ address, family: 4 as const }));
 }
 
 function literalRecord(hostname: string): AddressRecord | undefined {
@@ -294,8 +450,16 @@ function createHealthRequestTargetResolver(
   options: ResolverOptions = {},
 ): HealthRequestTargetResolver {
   const lookup = options.lookup ?? defaultLookup;
+  const hasConfiguredNat64Prefixes = options.nat64Prefixes !== undefined;
+  const configuredNat64Prefixes = hasConfiguredNat64Prefixes
+    ? parseNat64Prefixes(options.nat64Prefixes)
+    : undefined;
+  const nat64DiscoveryLookup = options.nat64DiscoveryLookup ?? defaultNat64DiscoveryLookup;
   return {
     async resolve(input) {
+      if (hasConfiguredNat64Prefixes && configuredNat64Prefixes === undefined) {
+        return unsupported();
+      }
       const target = parseTarget(input);
       if (target === undefined) return unsupported();
       let records: readonly AddressRecord[];
@@ -306,9 +470,21 @@ function createHealthRequestTargetResolver(
         return { ok: false, error: { code: mapNodeLookupError(error) } };
       }
       if (!Array.isArray(records) || records.length === 0) return unsupported();
+      let nat64Prefixes = configuredNat64Prefixes ?? [];
+      if (!hasConfiguredNat64Prefixes && records.some((record) => record?.family === 6)) {
+        let discoveryRecords: readonly AddressRecord[];
+        try {
+          discoveryRecords = await nat64DiscoveryLookup(RFC7050_DISCOVERY_HOSTNAME);
+        } catch {
+          return unsupported();
+        }
+        const discovered = discoverNat64Prefixes(discoveryRecords);
+        if (discovered === undefined) return unsupported();
+        nat64Prefixes = discovered;
+      }
       for (const record of records) {
         if (!isAddressRecord(record)) return unsupported();
-        const disposition = addressDisposition(record);
+        const disposition = addressDisposition(record, nat64Prefixes);
         if (disposition === "unsafe" ||
           (disposition === "loopback" && options.allowLoopback !== true)) return unsupported();
       }

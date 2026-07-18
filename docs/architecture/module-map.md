@@ -1,7 +1,7 @@
 # Bookmark Clean module map
 
 Status: current boundaries plus deferred targets
-Date: 2026-07-16
+Date: 2026-07-18
 
 ## System shape
 
@@ -1120,6 +1120,7 @@ Transport and request-safety rules:
 - `HealthTransportRequest.timeoutMs` is the deadline for one complete transport call, including target resolution and the socket exchange. A resolution that misses the deadline returns `timeout`; its late result cannot start a request. Reported duration includes resolution time.
 - The production transport accepts only HTTP and HTTPS URLs without credentials. Before every request, including redirect targets, it resolves the host, rejects loopback/private/link-local/multicast/unspecified destinations by default, pins the approved address for the connection, and preserves the original host for HTTP/TLS verification. Any unresolved or mixed public/private target is rejected as `unsupported_url`. These checks cannot be disabled by page content or redirects.
 - IPv4 eligibility follows the IANA IPv4 Special-Purpose Address Registry. Non-global ranges are rejected, including deprecated 6to4 relay addresses; registry-declared globally reachable exceptions inside otherwise special ranges remain eligible.
+- IPv6 approval performs RFC 7050 `ipv4only.arpa` discovery unless a trusted RFC 6052 prefix list is injected. The resolver recognizes `/32`, `/40`, `/48`, `/56`, `/64`, and `/96` translation layouts, applies the IPv4 policy to every embedded destination, and fails closed when discovery or prefix structure is indeterminate.
 - Test transports may explicitly allow loopback fixtures. That permission is injected in tests and never becomes a user URL rule.
 - Transport adapters author `HealthTransportFailureCode` from structured runtime facts. Unknown Node `TypeError` cases remain `unknown_transport` until typed cause fixtures prove a narrower mapping. Exception messages, socket prose, and traces never select a code.
 - Headers are lower-case, deduplicated, and restricted to `HealthSelectedHeaderName`. Header/body values are evidence only. Bodies are capped before allocation beyond `maxBodyBytes`; the observation stores only a fingerprint.
