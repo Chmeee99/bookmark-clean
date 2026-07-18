@@ -274,6 +274,25 @@ test("same fingerprint replays the current summary without inserting rows", asyn
   });
 });
 
+test("replay rejects an invalid stored batch summary without repair", async () => {
+  await withDatabase((database) => {
+    migrate(database);
+    assertSuccess(
+      enqueueJobsBatch(database, validCommand()),
+      "Initial enqueue for corrupt replay",
+    );
+    database
+      .prepare("UPDATE job_batches SET created_at = ? WHERE id = ?")
+      .run("not-a-time", BATCH_ID);
+
+    assertFailure(
+      enqueueJobsBatch(database, validCommand()),
+      "stored_queue_invalid",
+      "Corrupt replay summary",
+    );
+  });
+});
+
 test("conflicts and prequeried batch/job ID collisions do not write rows", async () => {
   await withDatabase((database) => {
     migrate(database);

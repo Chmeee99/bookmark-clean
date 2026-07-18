@@ -32,6 +32,10 @@ interface UnknownRecord {
 }
 
 interface ExpiredLeaseRecoveryApi { recoverExpiredLeases(database: SqliteDatabase, now: IsoDateTime): void; }
+interface StoredQueueIntegrityApi {
+  rejectStoredQueue(): never;
+  isStoredQueueInvalid(error: unknown): boolean;
+}
 
 declare const require: (specifier: string) => unknown;
 
@@ -48,6 +52,9 @@ const CANONICAL_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const { recoverExpiredLeases } = (require as unknown as (specifier: string) => unknown)(
   "./jobs-expired-lease.ts",
 ) as ExpiredLeaseRecoveryApi;
+const { rejectStoredQueue, isStoredQueueInvalid } = (require as unknown as (
+  specifier: string,
+) => unknown)("./jobs-stored-queue-integrity.ts") as StoredQueueIntegrityApi;
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -141,6 +148,10 @@ function storageUnavailable(): Outcome<JobLease | null, JobQueueFailure> {
   return { ok: false, error: { code: "storage_unavailable" } };
 }
 
+function storedQueueInvalid(): Outcome<JobLease | null, JobQueueFailure> {
+  return { ok: false, error: { code: "stored_queue_invalid" } };
+}
+
 function rollbackBestEffort(database: SqliteDatabase): void {
   try {
     database.exec("ROLLBACK");
@@ -173,21 +184,21 @@ function leaseFromRow(row: SqliteRow, command: StoredLeaseCommand): JobLease {
     !isSafeInteger(row.attempt) ||
     row.attempt < 0
   ) {
-    throw new Error("Stored lease candidate row is invalid");
+    rejectStoredQueue();
   }
-  const attempt = row.attempt + 1;
+  const attempt = (row.attempt as number) + 1;
   if (!Number.isSafeInteger(attempt)) {
-    throw new Error("Stored lease attempt cannot be incremented safely");
+    rejectStoredQueue();
   }
   return {
     token: command.token,
     jobId: row.id as JobId,
     batchId: row.batch_id as JobBatchId,
-    type: row.type,
+    type: "health_check",
     target: {
       kind: "bookmark",
       bookmarkId: row.bookmark_id as BookmarkId,
-      inputVersion: row.input_version,
+      inputVersion: row.input_version as string,
     },
     attempt,
     leasedAt: command.now,
@@ -227,7 +238,7 @@ function leaseSelectedCandidate(
     (candidate.state !== "pending" && candidate.state !== "retry_wait") ||
     !Number.isSafeInteger(candidate.attempt)
   ) {
-    throw new Error("Stored lease candidate state is invalid");
+    rejectStoredQueue();
   }
   requireChangedExactlyOnce(
     database
@@ -285,11 +296,13 @@ function leaseNextJob(
     database.exec("COMMIT");
     transactionStarted = false;
     return { ok: true, value: lease };
-  } catch {
+  } catch (error) {
     if (transactionStarted) {
       rollbackBestEffort(database);
     }
-    return storageUnavailable();
+    return isStoredQueueInvalid(error)
+      ? storedQueueInvalid()
+      : storageUnavailable();
   }
 }
 

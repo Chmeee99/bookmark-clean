@@ -52,7 +52,8 @@ type StartFailureContract = Assert<Equal<ProcessingStartFailure,
         | "invalid_request"
         | "batch_not_found"
         | "stale_lease"
-        | "invalid_transition";
+        | "invalid_transition"
+        | "stored_queue_invalid";
     }
 >>;
 type StarterDependenciesContract = Assert<Equal<ProcessingStarterDependencies, {

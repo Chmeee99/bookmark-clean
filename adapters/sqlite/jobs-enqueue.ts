@@ -25,6 +25,17 @@ interface UnknownRecord {
   readonly [key: string]: unknown;
 }
 
+interface StoredQueueIntegrityApi {
+  rejectStoredQueue(): never;
+  isStoredQueueInvalid(error: unknown): boolean;
+}
+
+declare const require: (specifier: string) => unknown;
+
+const { rejectStoredQueue, isStoredQueueInvalid } = (require as unknown as (
+  specifier: string,
+) => unknown)("./jobs-stored-queue-integrity.ts") as StoredQueueIntegrityApi;
+
 const COMMAND_KEYS = [
   "request",
   "requestFingerprint",
@@ -174,6 +185,10 @@ function storageUnavailable(): Outcome<JobBatchSummary, JobQueueFailure> {
   return { ok: false, error: { code: "storage_unavailable" } };
 }
 
+function storedQueueInvalid(): Outcome<JobBatchSummary, JobQueueFailure> {
+  return { ok: false, error: { code: "stored_queue_invalid" } };
+}
+
 function rollbackBestEffort(database: SqliteDatabase): void {
   try {
     database.exec("ROLLBACK");
@@ -183,6 +198,17 @@ function rollbackBestEffort(database: SqliteDatabase): void {
 }
 
 function summaryFromRow(row: SqliteRow): JobBatchSummary {
+  if (
+    !isNonEmptyString(row.id) ||
+    (row.state !== "active" &&
+      row.state !== "paused" &&
+      row.state !== "cancelled") ||
+    !isSafeInteger(row.total_count) ||
+    row.total_count <= 0 ||
+    !isCanonicalUtc(row.created_at)
+  ) {
+    rejectStoredQueue();
+  }
   return {
     batchId: row.id as JobBatchSummary["batchId"],
     state: row.state as JobBatchSummary["state"],
@@ -283,11 +309,13 @@ function enqueueJobsBatch(
         createdAt: command.createdAt,
       },
     };
-  } catch {
+  } catch (error) {
     if (transactionStarted) {
       rollbackBestEffort(database);
     }
-    return storageUnavailable();
+    return isStoredQueueInvalid(error)
+      ? storedQueueInvalid()
+      : storageUnavailable();
   }
 }
 

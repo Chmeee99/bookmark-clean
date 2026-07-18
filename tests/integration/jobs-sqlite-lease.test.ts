@@ -367,6 +367,33 @@ test("increments attempt once and returns exact lease fields", async () => {
   });
 });
 
+test("lease rejects an invalid stored candidate without repair", async () => {
+  await withJobsDatabase((database) => {
+    const jobId = "invalid-candidate-job" as JobId;
+    enqueueJobs(
+      database,
+      makeEnqueueCommand({
+        batchId: "invalid-candidate-batch" as JobBatchId,
+        jobIds: [jobId],
+      }),
+    );
+    database
+      .prepare("UPDATE jobs SET input_version = '' WHERE id = ?")
+      .run(jobId);
+
+    assertFailure(
+      leaseNextJob(
+        database,
+        makeLeaseCommand({
+          token: "invalid-candidate-token" as StoredLeaseCommand["token"],
+        }),
+      ),
+      "stored_queue_invalid",
+      "Invalid stored lease candidate",
+    );
+  });
+});
+
 test("returns null when no candidate exists and rejects an existing token", async () => {
   await withJobsDatabase((database) => {
     const futureJob = "empty-future-job" as JobId;

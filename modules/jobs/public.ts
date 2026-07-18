@@ -95,6 +95,7 @@ export type JobQueueFailureCode =
   | "batch_not_found"
   | "stale_lease"
   | "invalid_transition"
+  | "stored_queue_invalid"
   | "storage_unavailable";
 
 export interface JobQueueFailure {

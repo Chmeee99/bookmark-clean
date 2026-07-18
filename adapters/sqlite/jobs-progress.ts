@@ -66,6 +66,10 @@ interface ProgressValidationApi {
   ): JobProgress;
 }
 
+interface StoredQueueIntegrityApi {
+  isStoredQueueInvalid(error: unknown): boolean;
+}
+
 declare const require: (specifier: string) => unknown;
 
 const loadModule = require as unknown as (specifier: string) => unknown;
@@ -75,6 +79,9 @@ const { recoverExpiredLeases } = loadModule(
 const { readBatchRow, readJobRow, buildProgress } = loadModule(
   "./jobs-progress-validation.ts",
 ) as ProgressValidationApi;
+const { isStoredQueueInvalid } = loadModule(
+  "./jobs-stored-queue-integrity.ts",
+) as StoredQueueIntegrityApi;
 const CANONICAL_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 function isNonEmptyString(value: unknown): value is string {
@@ -87,7 +94,7 @@ function isCanonicalUtc(value: unknown): value is IsoDateTime {
   }
   try {
     return new Date(value).toISOString() === value;
-  } catch {
+  } catch (error) {
     return false;
   }
 }
@@ -104,10 +111,14 @@ function storageUnavailable(): Outcome<JobProgress, JobQueueFailure> {
   return { ok: false, error: { code: "storage_unavailable" } };
 }
 
+function storedQueueInvalid(): Outcome<JobProgress, JobQueueFailure> {
+  return { ok: false, error: { code: "stored_queue_invalid" } };
+}
+
 function rollbackBestEffort(database: SqliteDatabase): void {
   try {
     database.exec("ROLLBACK");
-  } catch {
+  } catch (error) {
     // Rollback is best effort after an engine failure.
   }
 }
@@ -150,11 +161,13 @@ function readJobsProgress(
     database.exec("COMMIT");
     transactionStarted = false;
     return { ok: true, value: progress };
-  } catch {
+  } catch (error) {
     if (transactionStarted) {
       rollbackBestEffort(database);
     }
-    return storageUnavailable();
+    return isStoredQueueInvalid(error)
+      ? storedQueueInvalid()
+      : storageUnavailable();
   }
 }
 

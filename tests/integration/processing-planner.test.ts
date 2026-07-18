@@ -386,6 +386,7 @@ test("starter maps every Jobs failure without diagnostics", async () => {
     ["batch_not_found", { code: "enqueue_rejected", queueCode: "batch_not_found" }],
     ["stale_lease", { code: "enqueue_rejected", queueCode: "stale_lease" }],
     ["invalid_transition", { code: "enqueue_rejected", queueCode: "invalid_transition" }],
+    ["stored_queue_invalid", { code: "enqueue_rejected", queueCode: "stored_queue_invalid" }],
   ] as const;
 
   for (const [code, expected] of cases) {

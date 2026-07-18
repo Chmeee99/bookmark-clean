@@ -252,6 +252,7 @@ function queueFailure(
     case "batch_not_found":
     case "stale_lease":
     case "invalid_transition":
+    case "stored_queue_invalid":
       return {
         ok: false,
         error: { code: "enqueue_rejected", queueCode: error.code },

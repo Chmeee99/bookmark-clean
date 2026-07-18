@@ -21,6 +21,7 @@ import type {
   JobQueueConfig,
   JobQueueDependencies,
   JobQueueFailure,
+  JobQueueFailureCode,
   JobQueueStore,
   JobResultReference,
   JobRetrySchedule,
@@ -61,6 +62,16 @@ type ResultReferences = Assert<Equal<JobResultReference, {
   readonly id: JobResultId;
 }>>;
 type WorkerOperations = Assert<Equal<JobWorkerOperation, "lease" | "succeed" | "fail">>;
+type QueueFailureCodes = Assert<Equal<JobQueueFailureCode,
+  | "empty_batch"
+  | "invalid_request"
+  | "idempotency_conflict"
+  | "batch_not_found"
+  | "stale_lease"
+  | "invalid_transition"
+  | "stored_queue_invalid"
+  | "storage_unavailable"
+>>;
 
 type QueueContract = Assert<Equal<JobQueue, {
   enqueue(request: EnqueueBatchRequest): Promise<Outcome<JobBatchSummary, JobQueueFailure>>;
@@ -146,6 +157,7 @@ void (null as unknown as BatchStates);
 void (null as unknown as JobTypes);
 void (null as unknown as ResultReferences);
 void (null as unknown as WorkerOperations);
+void (null as unknown as QueueFailureCodes);
 void (null as unknown as QueueContract);
 void (null as unknown as EnqueuerContract);
 void (null as unknown as EnqueueIdFactoryContract);

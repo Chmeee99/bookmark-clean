@@ -23,9 +23,7 @@ interface SqliteDatabase {
   prepare(sql: string): SqliteStatement;
 }
 
-interface TransitionValidationApi {
-  readonly isCanonicalUtc: (value: unknown) => value is IsoDateTime;
-  readonly isNonEmptyString: (value: unknown) => value is string;
+interface TransitionInputValidationApi {
   readonly validateCompletionCommand: (
     input: unknown,
   ) => input is StoredCompletionCommand;
@@ -37,12 +35,15 @@ interface TransitionValidationApi {
     action: unknown,
     changedAt: unknown,
   ) => boolean;
-  readonly isBatchState: (value: unknown) => value is BatchState;
+}
+
+interface TransitionStoreApi {
   readonly readLeaseRow: (
     database: SqliteDatabase,
     token: string,
     includeBatchState: boolean,
   ) => LeaseRow | undefined;
+  readonly readBatchRow: (row: SqliteRow) => StoredBatchRow;
   readonly isCurrentLease: (
     lease: LeaseRow,
     expectedAttempt: number,
@@ -58,13 +59,22 @@ interface TransitionValidationApi {
   readonly success: () => Outcome<void, JobQueueFailure>;
 }
 
+interface StoredQueueIntegrityApi {
+  isStoredQueueInvalid(error: unknown): boolean;
+}
+
 declare const require: (specifier: string) => unknown;
 
 const {
-  isCanonicalUtc,
-  isNonEmptyString,
-  isBatchState,
+  validateBatchStateInput,
+  validateCompletionCommand,
+  validateFailureCommand,
+} = (require as unknown as (specifier: string) => unknown)(
+  "./jobs-transition-input-validation.ts",
+) as TransitionInputValidationApi;
+const {
   readLeaseRow,
+  readBatchRow,
   isCurrentLease,
   requireChangedExactlyOnce,
   rollbackBestEffort,
@@ -74,12 +84,12 @@ const {
   batchNotFound,
   invalidTransition,
   success,
-  validateBatchStateInput,
-  validateCompletionCommand,
-  validateFailureCommand,
 } = (require as unknown as (specifier: string) => unknown)(
-  "./jobs-transition-validation.ts",
-) as TransitionValidationApi;
+  "./jobs-transition-store.ts",
+) as TransitionStoreApi;
+const { isStoredQueueInvalid } = (require as unknown as (
+  specifier: string,
+) => unknown)("./jobs-stored-queue-integrity.ts") as StoredQueueIntegrityApi;
 
 type JobState =
   | "pending"
@@ -98,6 +108,12 @@ interface LeaseRow {
   readonly leaseToken: string;
   readonly leaseExpiresAt: IsoDateTime;
   readonly batchState?: BatchState;
+}
+
+interface StoredBatchRow {
+  readonly id: string;
+  readonly state: BatchState;
+  readonly changedAt: IsoDateTime;
 }
 
 function completeJobLease(
@@ -141,11 +157,13 @@ function completeJobLease(
     database.exec("COMMIT");
     transactionStarted = false;
     return success();
-  } catch {
+  } catch (error) {
     if (transactionStarted) {
       rollbackBestEffort(database);
     }
-    return storageUnavailable();
+    return isStoredQueueInvalid(error)
+      ? { ok: false, error: { code: "stored_queue_invalid" } }
+      : storageUnavailable();
   }
 }
 
@@ -207,11 +225,13 @@ function failJobLease(
     database.exec("COMMIT");
     transactionStarted = false;
     return success();
-  } catch {
+  } catch (error) {
     if (transactionStarted) {
       rollbackBestEffort(database);
     }
-    return storageUnavailable();
+    return isStoredQueueInvalid(error)
+      ? { ok: false, error: { code: "stored_queue_invalid" } }
+      : storageUnavailable();
   }
 }
 
@@ -229,21 +249,15 @@ function setJobsBatchState(
   try {
     database.exec("BEGIN IMMEDIATE");
     transactionStarted = true;
-    const batch = database
+    const batchRow = database
       .prepare("SELECT id, state, changed_at FROM job_batches WHERE id = ?")
       .get(batchId);
-    if (batch === undefined) {
+    if (batchRow === undefined) {
       rollbackBestEffort(database);
       transactionStarted = false;
       return batchNotFound();
     }
-    if (
-      !isNonEmptyString(batch.id) ||
-      !isBatchState(batch.state) ||
-      !isCanonicalUtc(batch.changed_at)
-    ) {
-      throw new Error("Stored batch row is invalid");
-    }
+    const batch = readBatchRow(batchRow);
 
     let nextState: BatchState | null = null;
     if (action === "pause") {
@@ -292,11 +306,13 @@ function setJobsBatchState(
     database.exec("COMMIT");
     transactionStarted = false;
     return success();
-  } catch {
+  } catch (error) {
     if (transactionStarted) {
       rollbackBestEffort(database);
     }
-    return storageUnavailable();
+    return isStoredQueueInvalid(error)
+      ? { ok: false, error: { code: "stored_queue_invalid" } }
+      : storageUnavailable();
   }
 }
 

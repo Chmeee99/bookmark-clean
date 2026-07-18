@@ -389,6 +389,22 @@ test("controls reject missing or malformed requests before writes", async () => 
   });
 });
 
+test("controls reject an invalid stored batch without repair", async () => {
+  await withJobsDatabase((database) => {
+    const batchId = "invalid-control-batch" as JobBatchId;
+    enqueueControlBatch(database, batchId, ["invalid-control-job" as JobId]);
+    database
+      .prepare("UPDATE job_batches SET changed_at = ? WHERE id = ?")
+      .run("not-a-time", batchId);
+
+    assertFailure(
+      setJobsBatchState(database, batchId, "pause", ONE_SECOND_LATER),
+      "stored_queue_invalid",
+      "Invalid stored control batch",
+    );
+  });
+});
+
 test("cancel rollback preserves the batch and all jobs after a child-update abort", async () => {
   await withJobsDatabase((database) => {
     const batchId = "rollback-cancel-batch" as JobBatchId;

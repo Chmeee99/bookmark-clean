@@ -25,6 +25,16 @@ interface ExpiredLease {
   readonly batchState: "active" | "paused" | "cancelled";
 }
 
+interface StoredQueueIntegrityApi {
+  rejectStoredQueue(): never;
+}
+
+declare const require: (specifier: string) => unknown;
+
+const { rejectStoredQueue } = (require as unknown as (
+  specifier: string,
+) => unknown)("./jobs-stored-queue-integrity.ts") as StoredQueueIntegrityApi;
+
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -60,14 +70,14 @@ function readExpiredLease(row: SqliteRow): ExpiredLease {
       row.batch_state !== "paused" &&
       row.batch_state !== "cancelled")
   ) {
-    throw new Error("Stored expired lease row is invalid");
+    rejectStoredQueue();
   }
   return {
-    id: row.id,
-    attempt: row.attempt,
-    leaseToken: row.lease_token,
-    maxAttempts: row.max_attempts,
-    batchState: row.batch_state,
+    id: row.id as string,
+    attempt: row.attempt as number,
+    leaseToken: row.lease_token as string,
+    maxAttempts: row.max_attempts as number,
+    batchState: row.batch_state as ExpiredLease["batchState"],
   };
 }
 
@@ -118,7 +128,7 @@ function recoverExpiredLeases(
     }
 
     if (expired.batchState !== "active" && expired.batchState !== "paused") {
-      throw new Error("Stored batch state is invalid");
+      rejectStoredQueue();
     }
     requireChangedExactlyOnce(
       database

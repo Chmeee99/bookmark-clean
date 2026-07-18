@@ -27,7 +27,10 @@ interface SqliteApi {
 
 interface FileSystemApi {
   chmodSync(path: string, mode: number): void;
+  readFileSync(path: string, encoding: "utf8"): string;
   statSync(path: string): { readonly mode: number };
+  symlinkSync(target: string, path: string): void;
+  writeFileSync(path: string, data: string): void;
 }
 
 interface TemporaryDatabase {
@@ -164,5 +167,35 @@ test("unavailable paths and failed migrations return the fixed failure", async (
     const recovered = openCatalogDatabase(databasePath);
     assert(recovered.ok, "Migration failure should leave the file reusable");
     recovered.value.close();
+  });
+});
+
+test("file-backed sessions reject symlink targets and unsafe parent directories", async () => {
+  if (process.platform === "win32") return;
+
+  await withTemporaryDatabase(async ({ directory, databasePath }) => {
+    const targetPath = `${databasePath}.target`;
+    fileSystem.writeFileSync(targetPath, "");
+    fileSystem.symlinkSync(targetPath, databasePath);
+    assertUnavailable(
+      openCatalogDatabase(databasePath),
+      "A symlink database target should be rejected",
+    );
+    assert(
+      fileSystem.readFileSync(targetPath, "utf8") === "",
+      "Rejected symlink target was modified",
+    );
+  });
+
+  await withTemporaryDatabase(async ({ directory, databasePath }) => {
+    fileSystem.chmodSync(directory, 0o777);
+    try {
+      assertUnavailable(
+        openCatalogDatabase(databasePath),
+        "A database in a group/world-writable parent should be rejected",
+      );
+    } finally {
+      fileSystem.chmodSync(directory, 0o700);
+    }
   });
 });

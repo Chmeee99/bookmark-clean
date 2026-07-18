@@ -5,6 +5,16 @@ interface SqliteRow {
   readonly [key: string]: unknown;
 }
 
+interface StoredQueueIntegrityApi {
+  rejectStoredQueue(): never;
+}
+
+declare const require: (specifier: string) => unknown;
+
+const { rejectStoredQueue } = (require as unknown as (
+  specifier: string,
+) => unknown)("./jobs-stored-queue-integrity.ts") as StoredQueueIntegrityApi;
+
 type JobState =
   | "pending"
   | "leased"
@@ -67,15 +77,15 @@ function isBatchState(value: unknown): value is BatchState {
 
 function readOptionalTimestamp(row: SqliteRow, key: string): IsoDateTime | null {
   if (!Object.prototype.hasOwnProperty.call(row, key)) {
-    throw new Error(`Stored progress row is missing ${key}`);
+    rejectStoredQueue();
   }
   if (row[key] === null) {
     return null;
   }
   if (!isCanonicalUtc(row[key])) {
-    throw new Error(`Stored progress ${key} is invalid`);
+    rejectStoredQueue();
   }
-  return row[key];
+  return row[key] as IsoDateTime;
 }
 
 function readBatchRow(row: SqliteRow): StoredBatch {
@@ -86,12 +96,12 @@ function readBatchRow(row: SqliteRow): StoredBatch {
     !isCanonicalUtc(row.created_at) ||
     !isCanonicalUtc(row.changed_at)
   ) {
-    throw new Error("Stored progress batch row is invalid");
+    rejectStoredQueue();
   }
   return {
-    id: row.id,
-    state: row.state,
-    totalCount: row.total_count,
+    id: row.id as string,
+    state: row.state as BatchState,
+    totalCount: row.total_count as number,
   };
 }
 
@@ -100,16 +110,16 @@ function readJobRow(row: SqliteRow): StoredJob {
   const retryAt = readOptionalTimestamp(row, "retry_at");
   const leaseExpiresAt = readOptionalTimestamp(row, "lease_expires_at");
   if (!isNonEmptyString(row.id) || !isJobState(row.state)) {
-    throw new Error("Stored progress job row is invalid");
+    rejectStoredQueue();
   }
   if ((row.state === "retry_wait") !== (retryAt !== null)) {
-    throw new Error("Stored retry projection is invalid");
+    rejectStoredQueue();
   }
   if ((row.state === "leased") !== (leaseExpiresAt !== null)) {
-    throw new Error("Stored lease projection is invalid");
+    rejectStoredQueue();
   }
   return {
-    state: row.state,
+    state: row.state as JobState,
     notBefore,
     retryAt,
     leaseExpiresAt,
@@ -143,7 +153,7 @@ function buildProgress(
   let nextEligibleAt: IsoDateTime | undefined;
   for (const job of jobs) {
     if (counts[job.state] >= Number.MAX_SAFE_INTEGER) {
-      throw new Error("Progress count cannot be incremented safely");
+      rejectStoredQueue();
     }
     counts[job.state] += 1;
     if (batch.state === "active" && job.state === "pending") {
@@ -159,7 +169,7 @@ function buildProgress(
 
   const countedTotal = Object.values(counts).reduce((sum, count) => sum + count, 0);
   if (countedTotal !== batch.totalCount) {
-    throw new Error("Progress counts do not match the stored total");
+    rejectStoredQueue();
   }
   return {
     batchId: batch.id as JobProgress["batchId"],

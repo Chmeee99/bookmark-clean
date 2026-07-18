@@ -340,6 +340,37 @@ test("malformed completion commands return invalid_request before writes", async
   }
 });
 
+test("completion rejects an invalid stored lease without repair", async () => {
+  await withJobsDatabase((database) => {
+    const jobId = "invalid-stored-completion-job" as JobId;
+    enqueueJobs(
+      database,
+      makeEnqueueCommand({
+        batchId: "invalid-stored-completion-batch" as JobBatchId,
+        jobIds: [jobId],
+      }),
+    );
+    forceLease(database, {
+      jobId,
+      attempt: 1,
+      token: "invalid-stored-completion-token",
+      expiresAt: ONE_SECOND_LATER,
+    });
+    database
+      .prepare("UPDATE jobs SET lease_expires_at = ? WHERE id = ?")
+      .run("not-a-time", jobId);
+
+    assertFailure(
+      completeJobLease(
+        database,
+        completionCommand("invalid-stored-completion-token"),
+      ),
+      "stored_queue_invalid",
+      "Invalid stored completion lease",
+    );
+  });
+});
+
 test("completion engine failures roll back and closed databases are unavailable", async () => {
   await withJobsDatabase((database) => {
     const jobId = "rollback-completion-job" as JobId;

@@ -347,7 +347,7 @@ test("rolls back recovery on count invariants, malformed input, and an abort tri
 
     assertFailure(
       readJobsProgress(database, batchId, NOW),
-      "storage_unavailable",
+      "stored_queue_invalid",
       "Corrupt progress count",
     );
     assert(readJob(database, jobId)?.state === "leased", "Count invariant did not roll back recovery");
@@ -415,7 +415,7 @@ test("rejects malformed stored timestamps and rolls back recovery", async () => 
 
     assertFailure(
       readJobsProgress(database, batchId, NOW),
-      "storage_unavailable",
+      "stored_queue_invalid",
       "Malformed stored progress timestamp",
     );
     assert(readJob(database, jobId)?.state === "leased", "Malformed timestamp changed recovery state");

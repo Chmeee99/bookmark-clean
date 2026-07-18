@@ -78,7 +78,8 @@ export type ProcessingStartFailure =
         | "invalid_request"
         | "batch_not_found"
         | "stale_lease"
-        | "invalid_transition";
+        | "invalid_transition"
+        | "stored_queue_invalid";
     };
 
 export interface ProcessingStarterDependencies {
