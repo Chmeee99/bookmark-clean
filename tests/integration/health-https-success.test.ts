@@ -1,3 +1,4 @@
+// test-capability: loopback-listener
 interface NodeTestApi { test(name: string, callback: () => Promise<void>): void; }
 interface RequestSocket { readonly servername?: string; }
 interface IncomingRequest {

@@ -1,3 +1,4 @@
+// test-capability: loopback-listener
 import type {
   HealthTransport,
   HealthTransportRequest,

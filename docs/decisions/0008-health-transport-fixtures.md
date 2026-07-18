@@ -14,6 +14,9 @@ fixture. Current production behavior is defined in
 and VER-613 record the structured DNS/TLS classification, request-target
 safety, complete deadline, and aggregate verification evidence. Loopback
 listener permission remains an environment requirement recorded by RISK-006.
+The full release gate remains `npm run check`. Restricted environments may use
+`npm run check:restricted`, which transparently excludes only test files marked
+with the `loopback-listener` capability; GitHub CI never uses that fallback.
 
 ## Observed runtime
 

@@ -1,3 +1,4 @@
+// test-capability: loopback-listener
 import type { RunOneCommandSuccess } from "../../apps/local-cli/run-one-command.js";
 
 interface NodeTestApi {

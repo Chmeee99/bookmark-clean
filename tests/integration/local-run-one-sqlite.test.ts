@@ -1,3 +1,4 @@
+// test-capability: loopback-listener
 import type { RunImportCommand } from "../../apps/local-cli/import-command.js";
 import type {
   InspectFolder,

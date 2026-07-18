@@ -118,7 +118,7 @@ function boundaryViolation(sourceFile: string, specifier: string): string | unde
 
 function productionViolations(): readonly string[] {
   const violations: string[] = [];
-  for (const sourceRoot of ["apps", "core", "modules", "adapters"]) {
+  for (const sourceRoot of ["apps", "core", "modules", "adapters", "tools"]) {
     for (const file of filesBelow(path.resolve(root, sourceRoot))) {
       for (const specifier of staticSpecifiers(file, fileSystem.readFileSync(file, "utf8"))) {
         const violation = boundaryViolation(file, specifier);
@@ -203,4 +203,32 @@ test("test runner discovers new test files without package metadata edits", () =
   } finally {
     fileSystem.unlinkSync(probePath);
   }
+});
+
+test("test runner explicitly excludes only marked runtime capabilities", () => {
+  const result = childProcess.spawnSync(
+    process.execPath,
+    [
+      "scripts/run-tests.mjs",
+      "--list",
+      "--exclude-capability=loopback-listener",
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert(result.status === 0, `Capability-filtered discovery failed: ${result.stderr}`);
+  const discovered = result.stdout.trim().split(/\r?\n/).filter(Boolean);
+  assert(
+    !discovered.some((file) => file.endsWith("health-node-transport.test.ts")),
+    "Marked loopback test was not excluded",
+  );
+  assert(
+    discovered.some((file) => file.endsWith("module-boundaries.contract.test.ts")),
+    "Unmarked contract test was excluded",
+  );
+  assert(
+    result.stderr.includes(
+      "[test-runner] excluded capability loopback-listener from 5 test files",
+    ),
+    "Capability exclusion was not reported transparently",
+  );
 });

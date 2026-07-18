@@ -1,3 +1,4 @@
+// test-capability: loopback-listener
 interface NodeTestApi { test(name: string, callback: () => void | Promise<void>): void; }
 interface NodeError extends Error { code?: string; }
 interface IncomingMessage {
