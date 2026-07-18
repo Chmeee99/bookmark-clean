@@ -11,7 +11,10 @@
     "preview": "node apps/local-cli/main.ts preview",
     "enqueue": "node apps/local-cli/main.ts enqueue",
     "worker:once": "node apps/local-cli/main.ts worker:once",
+    "model:benchmark": "node tools/model-evaluation/main.ts",
+    "model:quality-calibration": "node tools/model-evaluation/quality-main.ts",
     "test": "node scripts/run-tests.mjs",
+    "test:restricted": "node scripts/run-tests.mjs --exclude-capability=loopback-listener",
     "test:jobs-sqlite": "node --test tests/integration/jobs-schema.test.ts tests/integration/jobs-sqlite-enqueue.test.ts tests/integration/jobs-sqlite-lease.test.ts tests/integration/jobs-sqlite-recovery.test.ts tests/integration/jobs-sqlite-transitions.test.ts tests/integration/jobs-sqlite-failure-transitions.test.ts tests/integration/jobs-sqlite-controls.test.ts tests/integration/jobs-sqlite-progress.test.ts tests/integration/job-queue-sqlite-store.test.ts",
     "test:jobs-sqlite-progress": "node --test tests/integration/jobs-sqlite-progress.test.ts tests/integration/job-queue-sqlite-store.test.ts",
     "test:jobs-sqlite-transitions": "node --test tests/integration/jobs-sqlite-transitions.test.ts tests/integration/jobs-sqlite-failure-transitions.test.ts tests/integration/jobs-sqlite-controls.test.ts",
@@ -19,7 +22,8 @@
     "test:jobs-worker": "node --test tests/integration/job-worker-service.test.ts tests/integration/job-worker-failures.test.ts tests/integration/job-worker-resume.test.ts",
     "test:jobs-worker-resume": "node --test tests/integration/job-worker-resume.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "check:restricted": "npm run typecheck && npm run test:restricted"
   },
   "devDependencies": {
     "typescript": "^5.9.2"
